@@ -161,6 +161,7 @@ fn run(
                     response.photos,
                     response.page,
                     response.per_page,
+                    response.total_results,
                     response.next_page,
                 ),
             )
@@ -376,13 +377,14 @@ fn search_payload(
     photos: Vec<Photo>,
     page: Option<u64>,
     per_page: Option<u64>,
+    total_results: Option<u64>,
     next_page: Option<String>,
 ) -> SearchPayload {
     SearchPayload {
         next_page,
         page: page.unwrap_or(args.page),
         per_page: per_page.unwrap_or(args.per_page),
-        total_results: photos.len(),
+        total_results: total_results.unwrap_or(photos.len() as u64),
         photos,
         query: args.query.clone(),
     }

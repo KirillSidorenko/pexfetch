@@ -17,6 +17,7 @@ pub struct Photo {
 pub struct SearchResponse {
     pub page: Option<u64>,
     pub per_page: Option<u64>,
+    pub total_results: Option<u64>,
     #[serde(default)]
     pub photos: Vec<Photo>,
     pub next_page: Option<String>,
@@ -49,7 +50,7 @@ pub struct SearchPayload {
     pub per_page: u64,
     pub photos: Vec<Photo>,
     pub query: String,
-    pub total_results: usize,
+    pub total_results: u64,
 }
 
 #[derive(Debug, Serialize)]

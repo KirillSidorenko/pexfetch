@@ -312,6 +312,35 @@ fn missing_api_key_exits_with_auth_code() {
 }
 
 #[test]
+fn search_reports_upstream_total_results() {
+    let dir = tempdir().unwrap();
+    let config_path = dir.path().join("config.json");
+    let server = MockServer::start();
+
+    server.mock(|when, then| {
+        when.method(GET).path("/v1/search");
+        then.status(200).json_body(json!({
+            "page": 1,
+            "per_page": 2,
+            "total_results": 8000,
+            "photos": [
+                { "id": 1, "src": {} },
+                { "id": 2, "src": {} }
+            ]
+        }));
+    });
+
+    let payload = parse_stdout_json(
+        command_with_config(&config_path)
+            .env("PEXELS_API_KEY", "test-key")
+            .env("PEXELS_AGENT_API_BASE", server.base_url())
+            .args(["search", "--query", "x", "--per-page", "2"]),
+    );
+
+    assert_eq!(payload["total_results"], 8000);
+}
+
+#[test]
 fn search_maps_http_403_to_forbidden() {
     let dir = tempdir().unwrap();
     let config_path = dir.path().join("config.json");
