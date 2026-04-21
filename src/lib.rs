@@ -11,7 +11,7 @@ use std::env;
 use std::io::{self, BufRead, Write};
 use std::path::{Path, PathBuf};
 
-use clap::{Args, Parser, Subcommand};
+use clap::{Args, Parser, Subcommand, ValueEnum};
 use rpassword::prompt_password_from_bufread;
 use serde_json::{Value, json};
 use url::Url;
@@ -86,12 +86,43 @@ struct SearchArgs {
     locale: Option<String>,
 }
 
+/// Pexels' fixed set of image-quality variants. Values match the keys
+/// on a `Photo.src` map exactly so that serialization into error and
+/// download payloads preserves the upstream spelling.
+#[derive(Debug, Clone, Copy, ValueEnum)]
+enum Quality {
+    Original,
+    #[value(name = "large2x")]
+    Large2x,
+    Large,
+    Medium,
+    Small,
+    Portrait,
+    Landscape,
+    Tiny,
+}
+
+impl Quality {
+    fn as_key(self) -> &'static str {
+        match self {
+            Quality::Original => "original",
+            Quality::Large2x => "large2x",
+            Quality::Large => "large",
+            Quality::Medium => "medium",
+            Quality::Small => "small",
+            Quality::Portrait => "portrait",
+            Quality::Landscape => "landscape",
+            Quality::Tiny => "tiny",
+        }
+    }
+}
+
 #[derive(Debug, Args)]
 struct DownloadArgs {
     #[arg(long)]
     id: u64,
-    #[arg(long, default_value = "original")]
-    quality: String,
+    #[arg(long, value_enum, default_value_t = Quality::Original)]
+    quality: Quality,
     #[arg(long = "output-dir")]
     output_dir: PathBuf,
 }
@@ -100,8 +131,8 @@ struct DownloadArgs {
 struct DownloadFirstArgs {
     #[command(flatten)]
     search: SearchArgs,
-    #[arg(long, default_value = "original")]
-    quality: String,
+    #[arg(long, value_enum, default_value_t = Quality::Original)]
+    quality: Quality,
     #[arg(long = "output-dir")]
     output_dir: PathBuf,
 }
@@ -184,15 +215,15 @@ fn run(
         Command::Download(args) => {
             let client = build_client()?;
             let photo = client.get_photo(args.id)?;
-            let source_url = quality_url(&photo, &args.quality)?;
+            let source_url = quality_url(&photo, args.quality)?;
             let destination =
-                build_destination(&args.output_dir, photo.id, &args.quality, &source_url)?;
+                build_destination(&args.output_dir, photo.id, args.quality, &source_url)?;
             client.download_file(&source_url, &destination)?;
             emit_json(
                 stdout,
                 &DownloadPayload {
                     photo_id: photo.id,
-                    quality: args.quality.clone(),
+                    quality: args.quality.as_key().to_owned(),
                     query: None,
                     saved_to: destination.to_string_lossy().into_owned(),
                     source_url,
@@ -205,15 +236,15 @@ fn run(
             let photo = response.photos.into_iter().next().ok_or_else(|| {
                 AppError::NotFound(format!("No photos found for query '{}'", args.search.query))
             })?;
-            let source_url = quality_url(&photo, &args.quality)?;
+            let source_url = quality_url(&photo, args.quality)?;
             let destination =
-                build_destination(&args.output_dir, photo.id, &args.quality, &source_url)?;
+                build_destination(&args.output_dir, photo.id, args.quality, &source_url)?;
             client.download_file(&source_url, &destination)?;
             emit_json(
                 stdout,
                 &DownloadPayload {
                     photo_id: photo.id,
-                    quality: args.quality.clone(),
+                    quality: args.quality.as_key().to_owned(),
                     query: Some(args.search.query.clone()),
                     saved_to: destination.to_string_lossy().into_owned(),
                     source_url,
@@ -405,12 +436,13 @@ fn search_payload(
     }
 }
 
-fn quality_url(photo: &Photo, quality: &str) -> Result<String, AppError> {
-    if let Some(url) = photo.src.get(quality) {
+fn quality_url(photo: &Photo, quality: Quality) -> Result<String, AppError> {
+    let key = quality.as_key();
+    if let Some(url) = photo.src.get(key) {
         return Ok(url.clone());
     }
     Err(AppError::InvalidQuality {
-        quality: quality.to_owned(),
+        quality: key.to_owned(),
         available: photo.src.keys().cloned().collect(),
     })
 }
@@ -418,7 +450,7 @@ fn quality_url(photo: &Photo, quality: &str) -> Result<String, AppError> {
 fn build_destination(
     output_dir: &Path,
     photo_id: u64,
-    quality: &str,
+    quality: Quality,
     source_url: &str,
 ) -> Result<PathBuf, AppError> {
     let suffix = Url::parse(source_url)
@@ -430,7 +462,10 @@ fn build_destination(
         })
         .unwrap_or_else(|| ".jpeg".to_owned());
 
-    Ok(output_dir.join(format!("{photo_id}-{quality}{suffix}")))
+    Ok(output_dir.join(format!(
+        "{photo_id}-{quality}{suffix}",
+        quality = quality.as_key()
+    )))
 }
 
 fn emit_json(stdout: &mut impl Write, payload: &impl serde::Serialize) -> Result<(), AppError> {

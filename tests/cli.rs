@@ -251,7 +251,28 @@ fn download_first_maps_empty_result_to_not_found() {
 }
 
 #[test]
-fn download_unknown_quality_emits_available_list() {
+fn download_rejects_unknown_quality_at_parse_time() {
+    let dir = tempdir().unwrap();
+    let config_path = dir.path().join("config.json");
+    let output_dir = dir.path().join("downloads");
+
+    command_with_config(&config_path)
+        .env("PEXELS_API_KEY", "test-key")
+        .args([
+            "download",
+            "--id",
+            "1",
+            "--quality",
+            "bogus",
+            "--output-dir",
+            output_dir.to_str().unwrap(),
+        ])
+        .assert()
+        .code(2);
+}
+
+#[test]
+fn download_missing_quality_in_photo_emits_available_list() {
     let dir = tempdir().unwrap();
     let config_path = dir.path().join("config.json");
     let output_dir = dir.path().join("downloads");
@@ -281,7 +302,7 @@ fn download_unknown_quality_emits_available_list() {
             "--id",
             "1001",
             "--quality",
-            "bogus",
+            "medium",
             "--output-dir",
             output_dir.to_str().unwrap(),
         ])
