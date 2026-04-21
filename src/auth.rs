@@ -39,7 +39,13 @@ pub fn load_stored_api_key() -> Result<Option<String>, AppError> {
         return Ok(None);
     }
 
-    let payload: AuthConfig = serde_json::from_str(&fs::read_to_string(path)?)?;
+    let contents = fs::read_to_string(&path)?;
+    let payload: AuthConfig = serde_json::from_str(&contents).map_err(|error| {
+        AppError::message(format!(
+            "config at {} is corrupt ({error}); run `pexels-agent auth logout` to reset it",
+            path.display()
+        ))
+    })?;
     if payload.api_key.trim().is_empty() {
         return Ok(None);
     }

@@ -312,6 +312,27 @@ fn missing_api_key_exits_with_auth_code() {
 }
 
 #[test]
+fn auth_status_gives_actionable_error_on_corrupt_config() {
+    let dir = tempdir().unwrap();
+    let config_path = dir.path().join("config.json");
+    fs::write(&config_path, "{not json").unwrap();
+
+    let mut command = command_with_config(&config_path);
+    let assert = command.args(["auth", "status"]).assert().code(1);
+    let payload = stderr_json(&assert);
+    let message = payload["error"]["message"].as_str().unwrap();
+
+    assert!(
+        message.contains(config_path.to_str().unwrap()),
+        "error must name the corrupt path, got: {message:?}"
+    );
+    assert!(
+        message.contains("auth logout"),
+        "error must suggest `auth logout`, got: {message:?}"
+    );
+}
+
+#[test]
 fn search_reports_upstream_total_results() {
     let dir = tempdir().unwrap();
     let config_path = dir.path().join("config.json");
