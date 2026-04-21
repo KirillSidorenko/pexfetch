@@ -50,6 +50,30 @@ fn auth_status_reports_missing_configuration() {
 }
 
 #[test]
+fn search_rejects_non_https_api_base() {
+    let dir = tempdir().unwrap();
+    let config_path = dir.path().join("config.json");
+
+    let mut command = command_with_config(&config_path);
+    let assert = command
+        .env("PEXELS_API_KEY", "test-key")
+        .env("PEXELS_AGENT_API_BASE", "http://evil.example.com")
+        .args(["search", "--query", "mountains"])
+        .assert()
+        .failure();
+    let stderr = String::from_utf8(assert.get_output().stderr.clone()).unwrap();
+
+    assert!(
+        stderr.contains("https"),
+        "error must mention https, got: {stderr:?}"
+    );
+    assert!(
+        stderr.contains("PEXELS_AGENT_API_BASE"),
+        "error must name the env var, got: {stderr:?}"
+    );
+}
+
+#[test]
 fn auth_login_with_cli_flag_prints_security_warning() {
     let dir = tempdir().unwrap();
     let config_path = dir.path().join("config.json");

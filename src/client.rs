@@ -30,9 +30,11 @@ pub struct PexelsClient {
 
 impl PexelsClient {
     pub fn new(api_key: String, api_base: Option<String>) -> Result<Self, AppError> {
+        let api_base = api_base.unwrap_or_else(|| DEFAULT_API_BASE.to_owned());
+        validate_api_base(&api_base)?;
         let http = Client::builder().build()?;
         Ok(Self {
-            api_base: api_base.unwrap_or_else(|| DEFAULT_API_BASE.to_owned()),
+            api_base,
             api_key,
             http,
         })
@@ -103,5 +105,32 @@ impl PexelsClient {
             self.api_base.trim_end_matches('/'),
             path.trim_start_matches('/')
         ))?)
+    }
+}
+
+fn validate_api_base(api_base: &str) -> Result<(), AppError> {
+    let url = Url::parse(api_base).map_err(|error| {
+        AppError::message(format!(
+            "PEXELS_AGENT_API_BASE is not a valid URL ({error}): {api_base}"
+        ))
+    })?;
+    match url.scheme() {
+        "https" => Ok(()),
+        "http" if is_loopback(&url) => Ok(()),
+        "http" => Err(AppError::message(format!(
+            "PEXELS_AGENT_API_BASE must use https:// (got {api_base}); http:// is only permitted for loopback hosts like 127.0.0.1, ::1, or localhost"
+        ))),
+        other => Err(AppError::message(format!(
+            "PEXELS_AGENT_API_BASE scheme must be https (got {other}://)"
+        ))),
+    }
+}
+
+fn is_loopback(url: &Url) -> bool {
+    match url.host() {
+        Some(url::Host::Domain(domain)) => domain == "localhost",
+        Some(url::Host::Ipv4(ip)) => ip.is_loopback(),
+        Some(url::Host::Ipv6(ip)) => ip.is_loopback(),
+        None => false,
     }
 }
