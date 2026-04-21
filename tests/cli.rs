@@ -50,6 +50,92 @@ fn auth_status_reports_missing_configuration() {
 }
 
 #[test]
+fn search_times_out_when_api_is_slow() {
+    let dir = tempdir().unwrap();
+    let config_path = dir.path().join("config.json");
+    let server = MockServer::start();
+
+    server.mock(|when, then| {
+        when.method(GET).path("/v1/search");
+        then.status(200)
+            .delay(std::time::Duration::from_secs(3))
+            .json_body(json!({ "page": 1, "per_page": 15, "photos": [] }));
+    });
+
+    let mut command = command_with_config(&config_path);
+    let assert = command
+        .env("PEXELS_API_KEY", "test-key")
+        .env("PEXELS_AGENT_API_BASE", server.base_url())
+        .env("PEXELS_AGENT_HTTP_TIMEOUT_MS", "300")
+        .args(["search", "--query", "slow"])
+        .assert()
+        .failure();
+    let stderr = String::from_utf8(assert.get_output().stderr.clone())
+        .unwrap()
+        .to_lowercase();
+
+    assert!(
+        stderr.contains("timed out") || stderr.contains("timeout"),
+        "expected timeout error, got: {stderr:?}"
+    );
+}
+
+#[test]
+fn download_fails_when_body_exceeds_limit() {
+    let dir = tempdir().unwrap();
+    let config_path = dir.path().join("config.json");
+    let output_dir = dir.path().join("downloads");
+    let server = MockServer::start();
+    let download_url = server.url("/files/big.jpeg");
+
+    server.mock(|when, then| {
+        when.method(GET).path("/v1/photos/1001");
+        then.status(200).json_body(json!({
+            "id": 1001,
+            "width": 10,
+            "height": 10,
+            "url": "https://www.pexels.com/photo/1001/",
+            "photographer": "Ada",
+            "src": { "original": download_url }
+        }));
+    });
+
+    server.mock(|when, then| {
+        when.method(GET).path("/files/big.jpeg");
+        then.status(200).body("this body is way too big for the cap");
+    });
+
+    let mut command = command_with_config(&config_path);
+    let assert = command
+        .env("PEXELS_API_KEY", "test-key")
+        .env("PEXELS_AGENT_API_BASE", server.base_url())
+        .env("PEXELS_AGENT_DOWNLOAD_MAX_BYTES", "8")
+        .args([
+            "download",
+            "--id",
+            "1001",
+            "--quality",
+            "original",
+            "--output-dir",
+            output_dir.to_str().unwrap(),
+        ])
+        .assert()
+        .failure();
+    let stderr = String::from_utf8(assert.get_output().stderr.clone()).unwrap();
+
+    assert!(
+        stderr.contains("exceeds"),
+        "expected size-limit error, got: {stderr:?}"
+    );
+
+    let big_file = output_dir.join("1001-original.jpeg");
+    assert!(
+        !big_file.exists(),
+        "oversized download must not leave a partial file on disk"
+    );
+}
+
+#[test]
 fn search_rejects_non_https_api_base() {
     let dir = tempdir().unwrap();
     let config_path = dir.path().join("config.json");

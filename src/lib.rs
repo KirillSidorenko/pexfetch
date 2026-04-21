@@ -12,7 +12,7 @@ mod error;
 mod models;
 
 use auth::{config_path, load_stored_api_key, remove_stored_api_key, save_api_key};
-use client::{PexelsClient, SearchRequest};
+use client::{ClientConfig, PexelsClient, SearchRequest};
 pub use error::AppError;
 use models::{AuthStatusPayload, DownloadPayload, Photo, SearchPayload, StatusPayload};
 
@@ -247,7 +247,28 @@ fn build_client() -> Result<PexelsClient, AppError> {
         AppError::message("PEXELS_API_KEY is not set and no stored config was found")
     })?;
     let api_base = env::var("PEXELS_AGENT_API_BASE").ok();
-    PexelsClient::new(api_key, api_base)
+    PexelsClient::new(api_key, api_base, client_config_from_env()?)
+}
+
+fn client_config_from_env() -> Result<ClientConfig, AppError> {
+    let mut config = ClientConfig::default();
+    if let Ok(raw) = env::var("PEXELS_AGENT_HTTP_TIMEOUT_MS") {
+        let ms: u64 = raw.parse().map_err(|_| {
+            AppError::message(format!(
+                "PEXELS_AGENT_HTTP_TIMEOUT_MS must be a positive integer (got {raw})"
+            ))
+        })?;
+        config.http_timeout = std::time::Duration::from_millis(ms);
+    }
+    if let Ok(raw) = env::var("PEXELS_AGENT_DOWNLOAD_MAX_BYTES") {
+        let bytes: u64 = raw.parse().map_err(|_| {
+            AppError::message(format!(
+                "PEXELS_AGENT_DOWNLOAD_MAX_BYTES must be a positive integer (got {raw})"
+            ))
+        })?;
+        config.download_max_bytes = bytes;
+    }
+    Ok(config)
 }
 
 fn status_payload() -> Result<StatusPayload, AppError> {
