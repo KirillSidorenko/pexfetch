@@ -1,8 +1,8 @@
 use std::io::{Read as _, Write as _};
 use std::path::{Path, PathBuf};
-use std::time::Duration;
+use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
-use reqwest::blocking::Client;
+use reqwest::blocking::{Client, Response};
 use reqwest::header::{ACCEPT, AUTHORIZATION, USER_AGENT};
 use serde::Serialize;
 use url::Url;
@@ -73,43 +73,44 @@ impl PexelsClient {
 
     pub fn search_photos(&self, request: &SearchRequest<'_>) -> Result<SearchResponse, AppError> {
         let endpoint = self.endpoint("/v1/search")?;
-        let response = self
-            .http
-            .get(endpoint)
-            .header(AUTHORIZATION, &self.api_key)
-            .header(ACCEPT, "application/json")
-            .header(USER_AGENT, USER_AGENT_VALUE)
-            .query(request)
-            .send()?
-            .error_for_status()?;
+        let response = check_status(
+            self.http
+                .get(endpoint)
+                .header(AUTHORIZATION, &self.api_key)
+                .header(ACCEPT, "application/json")
+                .header(USER_AGENT, USER_AGENT_VALUE)
+                .query(request)
+                .send()?,
+        )?;
 
         Ok(response.json()?)
     }
 
     pub fn get_photo(&self, photo_id: u64) -> Result<Photo, AppError> {
         let endpoint = self.endpoint(&format!("/v1/photos/{photo_id}"))?;
-        let response = self
-            .http
-            .get(endpoint)
-            .header(AUTHORIZATION, &self.api_key)
-            .header(ACCEPT, "application/json")
-            .header(USER_AGENT, USER_AGENT_VALUE)
-            .send()?
-            .error_for_status()?;
+        let response = check_status(
+            self.http
+                .get(endpoint)
+                .header(AUTHORIZATION, &self.api_key)
+                .header(ACCEPT, "application/json")
+                .header(USER_AGENT, USER_AGENT_VALUE)
+                .send()?,
+        )?;
 
         Ok(response.json()?)
     }
 
     pub fn check_connection(&self) -> Result<(), AppError> {
         let endpoint = self.endpoint("/v1/search")?;
-        self.http
-            .get(endpoint)
-            .header(AUTHORIZATION, &self.api_key)
-            .header(ACCEPT, "application/json")
-            .header(USER_AGENT, USER_AGENT_VALUE)
-            .query(&[("query", "status"), ("page", "1"), ("per_page", "1")])
-            .send()?
-            .error_for_status()?;
+        check_status(
+            self.http
+                .get(endpoint)
+                .header(AUTHORIZATION, &self.api_key)
+                .header(ACCEPT, "application/json")
+                .header(USER_AGENT, USER_AGENT_VALUE)
+                .query(&[("query", "status"), ("page", "1"), ("per_page", "1")])
+                .send()?,
+        )?;
         Ok(())
     }
 
@@ -118,12 +119,12 @@ impl PexelsClient {
             std::fs::create_dir_all(parent)?;
         }
 
-        let mut response = self
-            .http
-            .get(source_url)
-            .header(USER_AGENT, USER_AGENT_VALUE)
-            .send()?
-            .error_for_status()?;
+        let mut response = check_status(
+            self.http
+                .get(source_url)
+                .header(USER_AGENT, USER_AGENT_VALUE)
+                .send()?,
+        )?;
 
         let mut file = std::fs::File::create(destination)?;
         let mut buf = [0u8; 64 * 1024];
@@ -153,6 +154,49 @@ impl PexelsClient {
             self.api_base.trim_end_matches('/'),
             path.trim_start_matches('/')
         ))?)
+    }
+}
+
+fn check_status(response: Response) -> Result<Response, AppError> {
+    let status = response.status();
+    if status.is_success() {
+        return Ok(response);
+    }
+    Err(match status.as_u16() {
+        401 => AppError::Unauthorized(
+            "Pexels rejected the API key (HTTP 401). Check PEXELS_API_KEY or re-run `auth login`."
+                .to_owned(),
+        ),
+        403 => AppError::Forbidden(
+            "Pexels refused the request (HTTP 403); the API key may lack the required scope."
+                .to_owned(),
+        ),
+        404 => AppError::NotFound(format!("Pexels returned HTTP 404 for {}", response.url())),
+        429 => rate_limited_from(&response),
+        _ => response.error_for_status().unwrap_err().into(),
+    })
+}
+
+fn rate_limited_from(response: &Response) -> AppError {
+    let headers = response.headers();
+    let parse_u64 = |name: &str| -> Option<u64> {
+        headers
+            .get(name)
+            .and_then(|value| value.to_str().ok())
+            .and_then(|raw| raw.parse().ok())
+    };
+    let remaining = parse_u64("x-ratelimit-remaining");
+    let reset_at = parse_u64("x-ratelimit-reset");
+    let retry_after_secs = parse_u64("retry-after").or_else(|| {
+        reset_at.and_then(|reset_ts| {
+            let now = SystemTime::now().duration_since(UNIX_EPOCH).ok()?.as_secs();
+            Some(reset_ts.saturating_sub(now))
+        })
+    });
+    AppError::RateLimited {
+        retry_after_secs,
+        remaining,
+        reset_at,
     }
 }
 

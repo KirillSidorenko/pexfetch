@@ -136,6 +136,174 @@ fn download_fails_when_body_exceeds_limit() {
     );
 }
 
+fn stderr_json(assert: &assert_cmd::assert::Assert) -> Value {
+    let stderr = assert.get_output().stderr.clone();
+    serde_json::from_slice(&stderr).unwrap_or_else(|e| {
+        panic!(
+            "stderr is not JSON: {e}\nstderr was: {}",
+            String::from_utf8_lossy(&stderr)
+        )
+    })
+}
+
+#[test]
+fn search_maps_http_401_to_unauthorized_error() {
+    let dir = tempdir().unwrap();
+    let config_path = dir.path().join("config.json");
+    let server = MockServer::start();
+
+    server.mock(|when, then| {
+        when.method(GET).path("/v1/search");
+        then.status(401).body("");
+    });
+
+    let mut command = command_with_config(&config_path);
+    let assert = command
+        .env("PEXELS_API_KEY", "bad-key")
+        .env("PEXELS_AGENT_API_BASE", server.base_url())
+        .args(["search", "--query", "x"])
+        .assert()
+        .code(3);
+    let payload = stderr_json(&assert);
+
+    assert_eq!(payload["ok"], false);
+    assert_eq!(payload["error"]["kind"], "unauthorized");
+    assert!(
+        payload["error"]["message"]
+            .as_str()
+            .unwrap()
+            .to_lowercase()
+            .contains("401")
+    );
+}
+
+#[test]
+fn search_maps_http_429_to_rate_limited_error() {
+    let dir = tempdir().unwrap();
+    let config_path = dir.path().join("config.json");
+    let server = MockServer::start();
+
+    server.mock(|when, then| {
+        when.method(GET).path("/v1/search");
+        then.status(429)
+            .header("x-ratelimit-limit", "200")
+            .header("x-ratelimit-remaining", "0")
+            .header("x-ratelimit-reset", "9999999999")
+            .body("");
+    });
+
+    let mut command = command_with_config(&config_path);
+    let assert = command
+        .env("PEXELS_API_KEY", "test-key")
+        .env("PEXELS_AGENT_API_BASE", server.base_url())
+        .args(["search", "--query", "x"])
+        .assert()
+        .code(6);
+    let payload = stderr_json(&assert);
+
+    assert_eq!(payload["error"]["kind"], "rate_limited");
+    assert_eq!(payload["error"]["remaining"], 0);
+    assert_eq!(payload["error"]["reset_at"], 9_999_999_999_u64);
+}
+
+#[test]
+fn download_first_maps_empty_result_to_not_found() {
+    let dir = tempdir().unwrap();
+    let config_path = dir.path().join("config.json");
+    let output_dir = dir.path().join("downloads");
+    let server = MockServer::start();
+
+    server.mock(|when, then| {
+        when.method(GET).path("/v1/search");
+        then.status(200)
+            .json_body(json!({ "page": 1, "per_page": 15, "photos": [] }));
+    });
+
+    let mut command = command_with_config(&config_path);
+    let assert = command
+        .env("PEXELS_API_KEY", "test-key")
+        .env("PEXELS_AGENT_API_BASE", server.base_url())
+        .args([
+            "download-first",
+            "--query",
+            "nothing",
+            "--output-dir",
+            output_dir.to_str().unwrap(),
+        ])
+        .assert()
+        .code(4);
+    let payload = stderr_json(&assert);
+
+    assert_eq!(payload["error"]["kind"], "not_found");
+    assert!(
+        payload["error"]["message"]
+            .as_str()
+            .unwrap()
+            .contains("nothing")
+    );
+}
+
+#[test]
+fn download_unknown_quality_emits_available_list() {
+    let dir = tempdir().unwrap();
+    let config_path = dir.path().join("config.json");
+    let output_dir = dir.path().join("downloads");
+    let server = MockServer::start();
+
+    server.mock(|when, then| {
+        when.method(GET).path("/v1/photos/1001");
+        then.status(200).json_body(json!({
+            "id": 1001,
+            "width": 10,
+            "height": 10,
+            "url": "https://www.pexels.com/photo/1001/",
+            "photographer": "Ada",
+            "src": {
+                "original": "https://example.test/1001.jpeg",
+                "large2x": "https://example.test/1001-large2x.jpeg"
+            }
+        }));
+    });
+
+    let mut command = command_with_config(&config_path);
+    let assert = command
+        .env("PEXELS_API_KEY", "test-key")
+        .env("PEXELS_AGENT_API_BASE", server.base_url())
+        .args([
+            "download",
+            "--id",
+            "1001",
+            "--quality",
+            "bogus",
+            "--output-dir",
+            output_dir.to_str().unwrap(),
+        ])
+        .assert()
+        .code(4);
+    let payload = stderr_json(&assert);
+
+    assert_eq!(payload["error"]["kind"], "invalid_quality");
+    let available: Vec<String> = payload["error"]["available_qualities"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|v| v.as_str().unwrap().to_owned())
+        .collect();
+    assert!(available.contains(&"original".to_owned()));
+    assert!(available.contains(&"large2x".to_owned()));
+}
+
+#[test]
+fn missing_api_key_exits_with_auth_code() {
+    let dir = tempdir().unwrap();
+    let config_path = dir.path().join("config.json");
+
+    let mut command = command_with_config(&config_path);
+    let assert = command.args(["search", "--query", "x"]).assert().code(3);
+    let payload = stderr_json(&assert);
+    assert_eq!(payload["error"]["kind"], "missing_credential");
+}
+
 #[test]
 fn search_rejects_non_https_api_base() {
     let dir = tempdir().unwrap();

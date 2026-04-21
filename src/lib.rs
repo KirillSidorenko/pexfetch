@@ -4,6 +4,7 @@ use std::path::{Path, PathBuf};
 
 use clap::{Args, Parser, Subcommand};
 use rpassword::prompt_password_from_bufread;
+use serde_json::{Value, json};
 use url::Url;
 
 mod auth;
@@ -106,10 +107,39 @@ pub fn main_entry() -> i32 {
     match run(cli, &mut stdin_lock, &mut stdout_lock, &mut stderr_lock) {
         Ok(()) => 0,
         Err(error) => {
-            let _ = writeln!(stderr_lock, "{error}");
-            1
+            emit_error_json(&mut stderr_lock, &error);
+            error.exit_code()
         }
     }
+}
+
+fn emit_error_json(stderr: &mut impl Write, error: &AppError) {
+    let mut details = serde_json::Map::new();
+    details.insert("kind".to_owned(), Value::String(error.kind().to_owned()));
+    details.insert("message".to_owned(), Value::String(error.to_string()));
+    match error {
+        AppError::RateLimited {
+            retry_after_secs,
+            remaining,
+            reset_at,
+        } => {
+            if let Some(v) = retry_after_secs {
+                details.insert("retry_after_secs".to_owned(), json!(v));
+            }
+            if let Some(v) = remaining {
+                details.insert("remaining".to_owned(), json!(v));
+            }
+            if let Some(v) = reset_at {
+                details.insert("reset_at".to_owned(), json!(v));
+            }
+        }
+        AppError::InvalidQuality { available, .. } => {
+            details.insert("available_qualities".to_owned(), json!(available));
+        }
+        _ => {}
+    }
+    let payload = json!({ "ok": false, "error": Value::Object(details) });
+    let _ = writeln!(stderr, "{payload}");
 }
 
 fn run(
@@ -157,7 +187,7 @@ fn run(
             let client = build_client()?;
             let response = client.search_photos(&search_request(&args.search))?;
             let photo = response.photos.into_iter().next().ok_or_else(|| {
-                AppError::message(format!("No photos found for query '{}'", args.search.query))
+                AppError::NotFound(format!("No photos found for query '{}'", args.search.query))
             })?;
             let source_url = quality_url(&photo, &args.quality)?;
             let destination =
@@ -244,7 +274,9 @@ fn auth_status_payload(removed: Option<bool>) -> Result<AuthStatusPayload, AppEr
 fn build_client() -> Result<PexelsClient, AppError> {
     let auth_state = resolve_auth_state()?;
     let api_key = auth_state.api_key.ok_or_else(|| {
-        AppError::message("PEXELS_API_KEY is not set and no stored config was found")
+        AppError::MissingCredential(
+            "PEXELS_API_KEY is not set and no stored config was found".to_owned(),
+        )
     })?;
     let api_base = env::var("PEXELS_AGENT_API_BASE").ok();
     PexelsClient::new(api_key, api_base, client_config_from_env()?)
@@ -355,11 +387,13 @@ fn search_payload(
 }
 
 fn quality_url(photo: &Photo, quality: &str) -> Result<String, AppError> {
-    photo
-        .src
-        .get(quality)
-        .cloned()
-        .ok_or_else(|| AppError::message(format!("Unknown quality '{quality}'")))
+    if let Some(url) = photo.src.get(quality) {
+        return Ok(url.clone());
+    }
+    Err(AppError::InvalidQuality {
+        quality: quality.to_owned(),
+        available: photo.src.keys().cloned().collect(),
+    })
 }
 
 fn build_destination(
