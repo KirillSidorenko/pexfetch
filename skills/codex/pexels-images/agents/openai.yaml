@@ -1,0 +1,4 @@
+interface:
+  display_name: "Pexels Images"
+  short_description: "Search and download Pexels images"
+  default_prompt: "Use $pexels-images to search for and download Pexels images for this task."
