@@ -1,3 +1,12 @@
+//! Agent-friendly Rust CLI for the Pexels image API.
+//!
+//! The crate is split into a thin `main.rs` that delegates to
+//! [`main_entry`] and this library, which keeps every command testable
+//! by integration tests without spawning a subprocess. Commands emit
+//! machine-readable JSON on stdout; errors serialize to JSON on stderr
+//! with a stable `kind` and a distinct process exit code (see
+//! [`AppError::exit_code`]).
+
 use std::env;
 use std::io::{self, BufRead, Write};
 use std::path::{Path, PathBuf};
@@ -19,6 +28,8 @@ use models::{AuthStatusPayload, DownloadPayload, Photo, SearchPayload, StatusPay
 
 const PEXELS_API_KEY_URL: &str = "https://www.pexels.com/api/key/";
 
+/// Parsed top-level CLI invocation. Use [`Cli::parse`] (derived by clap)
+/// to build one from `std::env::args()`.
 #[derive(Debug, Parser)]
 #[command(name = "pexels-agent")]
 #[command(about = "Search, authenticate, and download Pexels images from the terminal.")]
@@ -95,6 +106,10 @@ struct DownloadFirstArgs {
     output_dir: PathBuf,
 }
 
+/// Run the CLI end-to-end using the process's real stdio handles and
+/// return the exit code. `src/main.rs` is a one-line wrapper around
+/// this function so that the entire binary is exercisable by integration
+/// tests via `assert_cmd`.
 pub fn main_entry() -> i32 {
     let cli = Cli::parse();
     let stdin = io::stdin();

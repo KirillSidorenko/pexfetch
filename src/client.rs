@@ -1,3 +1,11 @@
+//! Blocking HTTP client for the Pexels API.
+//!
+//! [`PexelsClient`] owns a pre-configured `reqwest::blocking::Client`
+//! with connect / total timeouts, a parsed base URL, and the API key
+//! header it injects on every authenticated call. Non-2xx responses are
+//! funnelled through [`check_status`] so that 401/403/404/429 become
+//! typed [`AppError`] variants instead of opaque `reqwest::Error`s.
+
 use std::io::{Read as _, Write as _};
 use std::path::{Path, PathBuf};
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
@@ -16,6 +24,8 @@ const DEFAULT_HTTP_TIMEOUT: Duration = Duration::from_secs(60);
 const DEFAULT_CONNECT_TIMEOUT: Duration = Duration::from_secs(10);
 const DEFAULT_DOWNLOAD_MAX_BYTES: u64 = 200 * 1024 * 1024; // 200 MiB
 
+/// Query parameters for `GET /v1/search`. The lifetime lets callers
+/// pass borrowed strings from the parsed `SearchArgs` without cloning.
 #[derive(Debug, Clone, Serialize)]
 pub struct SearchRequest<'a> {
     pub query: &'a str,
@@ -27,10 +37,19 @@ pub struct SearchRequest<'a> {
     pub locale: Option<&'a str>,
 }
 
+/// Tunables for the underlying HTTP client.
+///
+/// Construct with [`ClientConfig::default`] and override individual
+/// fields. `lib.rs::client_config_from_env` exposes the same knobs via
+/// `PEXELS_AGENT_HTTP_TIMEOUT_MS` and `PEXELS_AGENT_DOWNLOAD_MAX_BYTES`.
 #[derive(Debug, Clone)]
 pub struct ClientConfig {
+    /// Total per-request timeout (connect + read + body).
     pub http_timeout: Duration,
+    /// TCP/TLS connect timeout applied before `http_timeout`.
     pub connect_timeout: Duration,
+    /// Hard cap on a single download body. Oversized transfers are
+    /// aborted and the partial file is deleted.
     pub download_max_bytes: u64,
 }
 
@@ -44,6 +63,8 @@ impl Default for ClientConfig {
     }
 }
 
+/// Authenticated Pexels HTTP client. Cheap to clone-through-Arc but we
+/// keep it single-ownership since every command builds exactly one.
 pub struct PexelsClient {
     api_base: Url,
     api_key: String,
@@ -52,6 +73,10 @@ pub struct PexelsClient {
 }
 
 impl PexelsClient {
+    /// Build a client. `api_base` defaults to `https://api.pexels.com`;
+    /// non-https URLs are rejected unless the host is a loopback
+    /// (127.0.0.1, ::1, or localhost) so local mock servers can be used
+    /// in tests.
     pub fn new(
         api_key: String,
         api_base: Option<String>,
@@ -74,6 +99,7 @@ impl PexelsClient {
         })
     }
 
+    /// `GET /v1/search` with the given parameters.
     pub fn search_photos(&self, request: &SearchRequest<'_>) -> Result<SearchResponse, AppError> {
         let endpoint = self.endpoint("/v1/search")?;
         let response = check_status(
@@ -89,6 +115,8 @@ impl PexelsClient {
         Ok(response.json()?)
     }
 
+    /// `GET /v1/photos/{id}` — returns the full metadata for a single
+    /// photo, including every `src.*` URL.
     pub fn get_photo(&self, photo_id: u64) -> Result<Photo, AppError> {
         let endpoint = self.endpoint(&format!("/v1/photos/{photo_id}"))?;
         let response = check_status(
@@ -103,6 +131,8 @@ impl PexelsClient {
         Ok(response.json()?)
     }
 
+    /// Minimal request used by `pexels-agent status` to probe that the
+    /// configured API key actually authenticates against the base URL.
     pub fn check_connection(&self) -> Result<(), AppError> {
         let endpoint = self.endpoint("/v1/search")?;
         check_status(
@@ -117,6 +147,9 @@ impl PexelsClient {
         Ok(())
     }
 
+    /// Stream the body at `source_url` into `destination`, enforcing
+    /// [`ClientConfig::download_max_bytes`]. The partial file is
+    /// removed if the cap is exceeded.
     pub fn download_file(&self, source_url: &str, destination: &Path) -> Result<PathBuf, AppError> {
         if let Some(parent) = destination.parent() {
             std::fs::create_dir_all(parent)?;

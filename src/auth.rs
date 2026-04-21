@@ -1,3 +1,14 @@
+//! On-disk credential storage for the Pexels API key.
+//!
+//! Resolution order for the config path:
+//!   1. `PEXELS_AGENT_CONFIG_PATH` (explicit override; used by tests)
+//!   2. `$XDG_CONFIG_HOME/pexels-agent/config.json`
+//!   3. `$HOME/.config/pexels-agent/config.json`
+//!
+//! Writes go through [`save_api_key`], which performs an atomic
+//! temp-file + rename with mode `0600` on Unix so a crashed write
+//! never leaves a truncated or world-readable file behind.
+
 use std::env;
 use std::fs;
 use std::io::Write as _;
@@ -12,6 +23,7 @@ struct AuthConfig {
     api_key: String,
 }
 
+/// Resolve the effective config-file path from the environment.
 pub fn config_path() -> Result<PathBuf, AppError> {
     if let Ok(custom_path) = env::var("PEXELS_AGENT_CONFIG_PATH") {
         return Ok(PathBuf::from(custom_path));
@@ -33,6 +45,8 @@ pub fn config_path() -> Result<PathBuf, AppError> {
         .join("config.json"))
 }
 
+/// Read the stored API key, if any. A present-but-empty or
+/// whitespace-only `api_key` field is treated as unconfigured.
 pub fn load_stored_api_key() -> Result<Option<String>, AppError> {
     let path = config_path()?;
     if !path.exists() {
@@ -53,6 +67,8 @@ pub fn load_stored_api_key() -> Result<Option<String>, AppError> {
     Ok(Some(payload.api_key))
 }
 
+/// Persist the API key atomically and tighten the file to mode `0600`
+/// on Unix. Returns the final path on success.
 pub fn save_api_key(api_key: &str) -> Result<PathBuf, AppError> {
     let path = config_path()?;
     if let Some(parent) = path.parent() {
@@ -65,6 +81,8 @@ pub fn save_api_key(api_key: &str) -> Result<PathBuf, AppError> {
     Ok(path)
 }
 
+/// Delete the stored config file. Returns `true` if a file was
+/// removed, `false` if there was nothing to remove.
 pub fn remove_stored_api_key() -> Result<bool, AppError> {
     let path = config_path()?;
     if !path.exists() {

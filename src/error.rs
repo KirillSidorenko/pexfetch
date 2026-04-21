@@ -1,7 +1,20 @@
+//! Structured error type used by every command in the crate.
+//!
+//! Variants are chosen so that automation driving the CLI can branch on
+//! [`AppError::kind`] without parsing prose, and so that the shell exit
+//! code ([`AppError::exit_code`]) distinguishes recoverable from fatal
+//! failures. The `From<reqwest::Error>` impl also detects timeouts and
+//! connection errors and lifts them to a readable `Message` string.
+
 use std::io;
 
 use thiserror::Error;
 
+/// Every failure mode surfaced by the library.
+///
+/// See [`AppError::kind`] for the snake_case identifier emitted in JSON
+/// error payloads and [`AppError::exit_code`] for the mapping from
+/// variants to process exit codes.
 #[derive(Debug, Error)]
 pub enum AppError {
     #[error("{0}")]
@@ -39,10 +52,14 @@ pub enum AppError {
 }
 
 impl AppError {
+    /// Build an ad-hoc error with a free-form message. Prefer a dedicated
+    /// variant where one exists so the `kind` field stays useful.
     pub fn message(message: impl Into<String>) -> Self {
         Self::Message(message.into())
     }
 
+    /// Stable snake_case identifier for automation. Included as
+    /// `error.kind` in the JSON error payload written to stderr.
     pub fn kind(&self) -> &'static str {
         match self {
             Self::Message(_) => "error",
@@ -59,6 +76,8 @@ impl AppError {
         }
     }
 
+    /// Process exit code for this error. See the README for the
+    /// category-to-code table.
     pub fn exit_code(&self) -> i32 {
         match self {
             Self::MissingCredential(_) | Self::Unauthorized(_) | Self::Forbidden(_) => 3,
