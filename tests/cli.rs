@@ -49,6 +49,30 @@ fn auth_status_reports_missing_configuration() {
     assert_eq!(payload["source"], "none");
 }
 
+#[test]
+fn auth_login_with_cli_flag_prints_security_warning() {
+    let dir = tempdir().unwrap();
+    let config_path = dir.path().join("config.json");
+
+    let mut command = command_with_config(&config_path);
+    command.args(["auth", "login", "--api-key", "pexels-secret"]);
+    let assert = command.assert().success();
+    let stderr = String::from_utf8(assert.get_output().stderr.clone()).unwrap();
+
+    assert!(
+        stderr.to_lowercase().contains("warning"),
+        "expected stderr to contain a warning, got: {stderr:?}"
+    );
+    assert!(
+        stderr.contains("--api-key"),
+        "warning must name the --api-key flag, got: {stderr:?}"
+    );
+    assert!(
+        stderr.contains("ps") || stderr.contains("shell history"),
+        "warning must mention ps/shell-history leak, got: {stderr:?}"
+    );
+}
+
 #[cfg(unix)]
 #[test]
 fn auth_login_writes_config_file_with_mode_0600() {

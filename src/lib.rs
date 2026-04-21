@@ -187,7 +187,13 @@ fn run_auth(
         AuthCommand::Status => emit_json(stdout, &auth_status_payload(None)?),
         AuthCommand::Login { api_key } => {
             let api_key = match api_key.take() {
-                Some(api_key) => api_key.trim().to_owned(),
+                Some(api_key) => {
+                    writeln!(
+                        stderr,
+                        "warning: --api-key is visible in `ps` and shell history; prefer PEXELS_API_KEY env or interactive stdin"
+                    )?;
+                    api_key.trim().to_owned()
+                }
                 None => prompt_for_api_key(stdin, stderr)?,
             };
             let path = save_api_key(&api_key)?;
