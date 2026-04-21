@@ -255,7 +255,9 @@ fn prompt_for_api_key(
         .map_err(|error| AppError::message(error.to_string()))?;
     let api_key = api_key.trim().to_owned();
     if api_key.is_empty() {
-        return Err(AppError::message("API key is required"));
+        return Err(AppError::MissingCredential(
+            "API key is required; paste the key from https://www.pexels.com/api/key/".to_owned(),
+        ));
     }
     Ok(api_key)
 }

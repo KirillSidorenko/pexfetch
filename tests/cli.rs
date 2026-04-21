@@ -137,13 +137,20 @@ fn download_fails_when_body_exceeds_limit() {
 }
 
 fn stderr_json(assert: &assert_cmd::assert::Assert) -> Value {
-    let stderr = assert.get_output().stderr.clone();
-    serde_json::from_slice(&stderr).unwrap_or_else(|e| {
-        panic!(
-            "stderr is not JSON: {e}\nstderr was: {}",
-            String::from_utf8_lossy(&stderr)
-        )
-    })
+    let stderr = String::from_utf8_lossy(&assert.get_output().stderr).into_owned();
+    // The error payload is a single-line JSON object emitted last. Some
+    // commands (e.g. `auth login`) print interactive prompts without
+    // trailing newlines, so the JSON can be appended to the prompt line.
+    // Scan lines in reverse; within each line take the tail starting at
+    // the first '{' and try to parse.
+    for line in stderr.lines().rev() {
+        if let Some(brace) = line.find('{') {
+            if let Ok(value) = serde_json::from_str::<Value>(line[brace..].trim_end()) {
+                return value;
+            }
+        }
+    }
+    panic!("stderr has no JSON object, got: {stderr:?}")
 }
 
 #[test]
@@ -302,6 +309,150 @@ fn missing_api_key_exits_with_auth_code() {
     let assert = command.args(["search", "--query", "x"]).assert().code(3);
     let payload = stderr_json(&assert);
     assert_eq!(payload["error"]["kind"], "missing_credential");
+}
+
+#[test]
+fn search_maps_http_403_to_forbidden() {
+    let dir = tempdir().unwrap();
+    let config_path = dir.path().join("config.json");
+    let server = MockServer::start();
+
+    server.mock(|when, then| {
+        when.method(GET).path("/v1/search");
+        then.status(403).body("");
+    });
+
+    let mut command = command_with_config(&config_path);
+    let assert = command
+        .env("PEXELS_API_KEY", "no-scope")
+        .env("PEXELS_AGENT_API_BASE", server.base_url())
+        .args(["search", "--query", "x"])
+        .assert()
+        .code(3);
+    let payload = stderr_json(&assert);
+
+    assert_eq!(payload["error"]["kind"], "forbidden");
+}
+
+#[test]
+fn search_surfaces_malformed_json_response() {
+    let dir = tempdir().unwrap();
+    let config_path = dir.path().join("config.json");
+    let server = MockServer::start();
+
+    server.mock(|when, then| {
+        when.method(GET).path("/v1/search");
+        then.status(200).body("not json at all");
+    });
+
+    let mut command = command_with_config(&config_path);
+    let assert = command
+        .env("PEXELS_API_KEY", "test-key")
+        .env("PEXELS_AGENT_API_BASE", server.base_url())
+        .args(["search", "--query", "x"])
+        .assert()
+        .code(5);
+    let payload = stderr_json(&assert);
+
+    assert_eq!(payload["error"]["kind"], "http_error");
+}
+
+#[test]
+fn env_api_key_wins_over_stored_config() {
+    let dir = tempdir().unwrap();
+    let config_path = dir.path().join("config.json");
+    fs::write(
+        &config_path,
+        json!({ "api_key": "stored-key" }).to_string(),
+    )
+    .unwrap();
+
+    let payload = parse_stdout_json(
+        command_with_config(&config_path)
+            .env("PEXELS_API_KEY", "env-key")
+            .args(["auth", "status"]),
+    );
+
+    assert_eq!(payload["configured"], true);
+    assert_eq!(payload["source"], "env");
+}
+
+#[test]
+fn xdg_config_home_is_used_when_config_path_unset() {
+    let xdg = tempdir().unwrap();
+    let home = tempdir().unwrap();
+
+    let mut command = Command::cargo_bin("pexels-agent").expect("binary exists");
+    command.env_remove("PEXELS_AGENT_CONFIG_PATH");
+    command.env("XDG_CONFIG_HOME", xdg.path());
+    command.env("HOME", home.path());
+    command
+        .args(["auth", "login", "--api-key", "xdg-key"])
+        .assert()
+        .success();
+
+    let expected = xdg.path().join("pexels-agent").join("config.json");
+    assert!(
+        expected.exists(),
+        "config must land at {}",
+        expected.display()
+    );
+    let stored: Value = serde_json::from_str(&fs::read_to_string(&expected).unwrap()).unwrap();
+    assert_eq!(stored["api_key"], "xdg-key");
+}
+
+#[test]
+fn auth_login_empty_stdin_fails_with_missing_credential() {
+    let dir = tempdir().unwrap();
+    let config_path = dir.path().join("config.json");
+
+    let mut command = command_with_config(&config_path);
+    command.args(["auth", "login"]).write_stdin("\n");
+    let assert = command.assert().code(3);
+    let payload = stderr_json(&assert);
+
+    assert_eq!(payload["error"]["kind"], "missing_credential");
+}
+
+#[test]
+fn auth_logout_without_saved_config_reports_removed_false() {
+    let dir = tempdir().unwrap();
+    let config_path = dir.path().join("config.json");
+
+    let payload = parse_stdout_json(command_with_config(&config_path).args(["auth", "logout"]));
+
+    assert_eq!(payload["configured"], false);
+    assert_eq!(payload["removed"], false);
+}
+
+#[test]
+fn auth_status_treats_whitespace_config_key_as_unconfigured() {
+    let dir = tempdir().unwrap();
+    let config_path = dir.path().join("config.json");
+    fs::write(&config_path, json!({ "api_key": "   " }).to_string()).unwrap();
+
+    let payload = parse_stdout_json(command_with_config(&config_path).args(["auth", "status"]));
+
+    assert_eq!(payload["configured"], false);
+    assert_eq!(payload["source"], "none");
+}
+
+#[test]
+fn auth_login_overwrites_existing_config() {
+    let dir = tempdir().unwrap();
+    let config_path = dir.path().join("config.json");
+
+    command_with_config(&config_path)
+        .args(["auth", "login", "--api-key", "first"])
+        .assert()
+        .success();
+    command_with_config(&config_path)
+        .args(["auth", "login", "--api-key", "second"])
+        .assert()
+        .success();
+
+    let stored: Value = serde_json::from_str(&fs::read_to_string(&config_path).unwrap()).unwrap();
+    assert_eq!(stored["api_key"], "second");
 }
 
 #[test]
