@@ -45,7 +45,7 @@ impl Default for ClientConfig {
 }
 
 pub struct PexelsClient {
-    api_base: String,
+    api_base: Url,
     api_key: String,
     http: Client,
     download_max_bytes: u64,
@@ -57,8 +57,11 @@ impl PexelsClient {
         api_base: Option<String>,
         config: ClientConfig,
     ) -> Result<Self, AppError> {
-        let api_base = api_base.unwrap_or_else(|| DEFAULT_API_BASE.to_owned());
-        validate_api_base(&api_base)?;
+        let mut raw = api_base.unwrap_or_else(|| DEFAULT_API_BASE.to_owned());
+        if !raw.ends_with('/') {
+            raw.push('/');
+        }
+        let api_base = validate_api_base(&raw)?;
         let http = Client::builder()
             .connect_timeout(config.connect_timeout)
             .timeout(config.http_timeout)
@@ -149,11 +152,7 @@ impl PexelsClient {
     }
 
     fn endpoint(&self, path: &str) -> Result<Url, AppError> {
-        Ok(Url::parse(&format!(
-            "{}/{}",
-            self.api_base.trim_end_matches('/'),
-            path.trim_start_matches('/')
-        ))?)
+        Ok(self.api_base.join(path.trim_start_matches('/'))?)
     }
 }
 
@@ -200,15 +199,15 @@ fn rate_limited_from(response: &Response) -> AppError {
     }
 }
 
-fn validate_api_base(api_base: &str) -> Result<(), AppError> {
+fn validate_api_base(api_base: &str) -> Result<Url, AppError> {
     let url = Url::parse(api_base).map_err(|error| {
         AppError::message(format!(
             "PEXELS_AGENT_API_BASE is not a valid URL ({error}): {api_base}"
         ))
     })?;
     match url.scheme() {
-        "https" => Ok(()),
-        "http" if is_loopback(&url) => Ok(()),
+        "https" => Ok(url),
+        "http" if is_loopback(&url) => Ok(url),
         "http" => Err(AppError::message(format!(
             "PEXELS_AGENT_API_BASE must use https:// (got {api_base}); http:// is only permitted for loopback hosts like 127.0.0.1, ::1, or localhost"
         ))),
