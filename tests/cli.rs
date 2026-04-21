@@ -49,6 +49,23 @@ fn auth_status_reports_missing_configuration() {
     assert_eq!(payload["source"], "none");
 }
 
+#[cfg(unix)]
+#[test]
+fn auth_login_writes_config_file_with_mode_0600() {
+    use std::os::unix::fs::PermissionsExt;
+
+    let dir = tempdir().unwrap();
+    let config_path = dir.path().join("config.json");
+
+    command_with_config(&config_path)
+        .args(["auth", "login", "--api-key", "pexels-secret"])
+        .assert()
+        .success();
+
+    let mode = fs::metadata(&config_path).unwrap().permissions().mode() & 0o777;
+    assert_eq!(mode, 0o600, "expected mode 0600, got {mode:o}");
+}
+
 #[test]
 fn auth_login_saves_key_to_config() {
     let dir = tempdir().unwrap();
