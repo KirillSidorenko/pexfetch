@@ -1,4 +1,25 @@
-__pycache__/
-*.pyc
+# Rust
+/target
+**/*.rs.bk
+*.pdb
+
+# Secrets / env
+.env
+.env.*
+!.env.example
+
+# OS
 .DS_Store
-target/
+Thumbs.db
+
+# Editors / IDEs
+*.swp
+*.swo
+.idea/
+.vscode/
+*.iml
+.cursor/
+
+# Tooling caches
+.cargo/
+rust-analyzer.json
