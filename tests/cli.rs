@@ -102,7 +102,8 @@ fn download_fails_when_body_exceeds_limit() {
 
     server.mock(|when, then| {
         when.method(GET).path("/files/big.jpeg");
-        then.status(200).body("this body is way too big for the cap");
+        then.status(200)
+            .body("this body is way too big for the cap");
     });
 
     let mut command = command_with_config(&config_path);
