@@ -1,9 +1,9 @@
 //! On-disk credential storage for the Pexels API key.
 //!
 //! Resolution order for the config path:
-//!   1. `PEXELS_AGENT_CONFIG_PATH` (explicit override; used by tests)
-//!   2. `$XDG_CONFIG_HOME/pexels-agent/config.json`
-//!   3. `$HOME/.config/pexels-agent/config.json`
+//!   1. `PEXFETCH_CONFIG_PATH` (explicit override; used by tests)
+//!   2. `$XDG_CONFIG_HOME/pexfetch/config.json`
+//!   3. `$HOME/.config/pexfetch/config.json`
 //!
 //! Writes go through [`save_api_key`], which performs an atomic
 //! temp-file + rename with mode `0600` on Unix so a crashed write
@@ -25,13 +25,13 @@ struct AuthConfig {
 
 /// Resolve the effective config-file path from the environment.
 pub fn config_path() -> Result<PathBuf, AppError> {
-    if let Ok(custom_path) = env::var("PEXELS_AGENT_CONFIG_PATH") {
+    if let Ok(custom_path) = env::var("PEXFETCH_CONFIG_PATH") {
         return Ok(PathBuf::from(custom_path));
     }
 
     if let Ok(config_home) = env::var("XDG_CONFIG_HOME") {
         return Ok(PathBuf::from(config_home)
-            .join("pexels-agent")
+            .join("pexfetch")
             .join("config.json"));
     }
 
@@ -41,7 +41,7 @@ pub fn config_path() -> Result<PathBuf, AppError> {
 
     Ok(home
         .join(".config")
-        .join("pexels-agent")
+        .join("pexfetch")
         .join("config.json"))
 }
 
@@ -56,7 +56,7 @@ pub fn load_stored_api_key() -> Result<Option<String>, AppError> {
     let contents = fs::read_to_string(&path)?;
     let payload: AuthConfig = serde_json::from_str(&contents).map_err(|error| {
         AppError::message(format!(
-            "config at {} is corrupt ({error}); run `pexels-agent auth logout` to reset it",
+            "config at {} is corrupt ({error}); run `pexfetch auth logout` to reset it",
             path.display()
         ))
     })?;

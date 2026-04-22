@@ -31,7 +31,7 @@ const PEXELS_API_KEY_URL: &str = "https://www.pexels.com/api/key/";
 /// Parsed top-level CLI invocation. Use [`Cli::parse`] (derived by clap)
 /// to build one from `std::env::args()`.
 #[derive(Debug, Parser)]
-#[command(name = "pexels-agent")]
+#[command(name = "pexfetch")]
 #[command(about = "Search, authenticate, and download Pexels images from the terminal.")]
 pub struct Cli {
     #[command(subcommand)]
@@ -327,24 +327,24 @@ fn build_client() -> Result<PexelsClient, AppError> {
             "PEXELS_API_KEY is not set and no stored config was found".to_owned(),
         )
     })?;
-    let api_base = env::var("PEXELS_AGENT_API_BASE").ok();
+    let api_base = env::var("PEXFETCH_API_BASE").ok();
     PexelsClient::new(api_key, api_base, client_config_from_env()?)
 }
 
 fn client_config_from_env() -> Result<ClientConfig, AppError> {
     let mut config = ClientConfig::default();
-    if let Ok(raw) = env::var("PEXELS_AGENT_HTTP_TIMEOUT_MS") {
+    if let Ok(raw) = env::var("PEXFETCH_HTTP_TIMEOUT_MS") {
         let ms: u64 = raw.parse().map_err(|_| {
             AppError::message(format!(
-                "PEXELS_AGENT_HTTP_TIMEOUT_MS must be a positive integer (got {raw})"
+                "PEXFETCH_HTTP_TIMEOUT_MS must be a positive integer (got {raw})"
             ))
         })?;
         config.http_timeout = std::time::Duration::from_millis(ms);
     }
-    if let Ok(raw) = env::var("PEXELS_AGENT_DOWNLOAD_MAX_BYTES") {
+    if let Ok(raw) = env::var("PEXFETCH_DOWNLOAD_MAX_BYTES") {
         let bytes: u64 = raw.parse().map_err(|_| {
             AppError::message(format!(
-                "PEXELS_AGENT_DOWNLOAD_MAX_BYTES must be a positive integer (got {raw})"
+                "PEXFETCH_DOWNLOAD_MAX_BYTES must be a positive integer (got {raw})"
             ))
         })?;
         config.download_max_bytes = bytes;
@@ -355,7 +355,7 @@ fn client_config_from_env() -> Result<ClientConfig, AppError> {
 fn status_payload() -> Result<StatusPayload, AppError> {
     let auth_state = resolve_auth_state()?;
     let api_base =
-        env::var("PEXELS_AGENT_API_BASE").unwrap_or_else(|_| "https://api.pexels.com".to_owned());
+        env::var("PEXFETCH_API_BASE").unwrap_or_else(|_| "https://api.pexels.com".to_owned());
 
     let (api_reachable, api_error) = match build_client() {
         Ok(client) => match client.check_connection() {

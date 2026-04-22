@@ -1,5 +1,5 @@
 [package]
-name = "pexels-agent-cli"
+name = "pexfetch"
 version = "0.1.0"
 edition = "2024"
 rust-version = "1.86"
@@ -11,7 +11,7 @@ keywords = ["pexels", "cli", "images", "stock-photos", "agent"]
 categories = ["command-line-utilities", "multimedia::images"]
 
 [[bin]]
-name = "pexels-agent"
+name = "pexfetch"
 path = "src/main.rs"
 
 [dependencies]

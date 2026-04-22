@@ -1,6 +1,6 @@
 # Bundled agent skills
 
-Two host-specific skill packages that drive the `pexels-agent` CLI from
+Two host-specific skill packages that drive the `pexfetch` CLI from
 inside an AI coding agent:
 
 | Host         | Path                                   | Format                         |

@@ -36,7 +36,7 @@ pub struct SearchResponse {
     pub next_page: Option<String>,
 }
 
-/// Stdout payload for `pexels-agent auth status` / `auth login` /
+/// Stdout payload for `pexfetch auth status` / `auth login` /
 /// `auth logout`.
 #[derive(Debug, Serialize)]
 pub struct AuthStatusPayload {
@@ -47,7 +47,7 @@ pub struct AuthStatusPayload {
     pub removed: Option<bool>,
 }
 
-/// Stdout payload for `pexels-agent status`.
+/// Stdout payload for `pexfetch status`.
 #[derive(Debug, Serialize)]
 pub struct StatusPayload {
     pub api_base: String,
@@ -59,7 +59,7 @@ pub struct StatusPayload {
     pub source: String,
 }
 
-/// Stdout payload for `pexels-agent search`.
+/// Stdout payload for `pexfetch search`.
 #[derive(Debug, Serialize)]
 pub struct SearchPayload {
     pub next_page: Option<String>,
@@ -70,7 +70,7 @@ pub struct SearchPayload {
     pub total_results: u64,
 }
 
-/// Stdout payload for `pexels-agent download` and `download-first`.
+/// Stdout payload for `pexfetch download` and `download-first`.
 #[derive(Debug, Serialize)]
 pub struct DownloadPayload {
     pub photo_id: u64,

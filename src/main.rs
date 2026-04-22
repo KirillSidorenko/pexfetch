@@ -1,3 +1,3 @@
 fn main() {
-    std::process::exit(pexels_agent_cli::main_entry());
+    std::process::exit(pexfetch::main_entry());
 }

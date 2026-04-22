@@ -7,8 +7,8 @@ use serde_json::{Value, json};
 use tempfile::tempdir;
 
 fn command_with_config(config_path: &std::path::Path) -> Command {
-    let mut command = Command::cargo_bin("pexels-agent").expect("binary exists");
-    command.env("PEXELS_AGENT_CONFIG_PATH", config_path);
+    let mut command = Command::cargo_bin("pexfetch").expect("binary exists");
+    command.env("PEXFETCH_CONFIG_PATH", config_path);
     command
 }
 
@@ -19,7 +19,7 @@ fn parse_stdout_json(command: &mut Command) -> Value {
 
 #[test]
 fn root_help_mentions_status_and_auth_flows() {
-    let mut command = Command::cargo_bin("pexels-agent").expect("binary exists");
+    let mut command = Command::cargo_bin("pexfetch").expect("binary exists");
     let assert = command.arg("--help").assert().success();
     let stdout = String::from_utf8(assert.get_output().stdout.clone()).unwrap();
 
@@ -30,12 +30,12 @@ fn root_help_mentions_status_and_auth_flows() {
 
 #[test]
 fn status_help_mentions_api_connectivity_check() {
-    let mut command = Command::cargo_bin("pexels-agent").expect("binary exists");
+    let mut command = Command::cargo_bin("pexfetch").expect("binary exists");
     let assert = command.args(["status", "--help"]).assert().success();
     let stdout = String::from_utf8(assert.get_output().stdout.clone()).unwrap();
 
     assert!(stdout.contains("Check configured auth and live API connectivity"));
-    assert!(stdout.contains("Usage: pexels-agent status"));
+    assert!(stdout.contains("Usage: pexfetch status"));
 }
 
 #[test]
@@ -65,8 +65,8 @@ fn search_times_out_when_api_is_slow() {
     let mut command = command_with_config(&config_path);
     let assert = command
         .env("PEXELS_API_KEY", "test-key")
-        .env("PEXELS_AGENT_API_BASE", server.base_url())
-        .env("PEXELS_AGENT_HTTP_TIMEOUT_MS", "300")
+        .env("PEXFETCH_API_BASE", server.base_url())
+        .env("PEXFETCH_HTTP_TIMEOUT_MS", "300")
         .args(["search", "--query", "slow"])
         .assert()
         .failure();
@@ -109,8 +109,8 @@ fn download_fails_when_body_exceeds_limit() {
     let mut command = command_with_config(&config_path);
     let assert = command
         .env("PEXELS_API_KEY", "test-key")
-        .env("PEXELS_AGENT_API_BASE", server.base_url())
-        .env("PEXELS_AGENT_DOWNLOAD_MAX_BYTES", "8")
+        .env("PEXFETCH_API_BASE", server.base_url())
+        .env("PEXFETCH_DOWNLOAD_MAX_BYTES", "8")
         .args([
             "download",
             "--id",
@@ -167,7 +167,7 @@ fn search_maps_http_401_to_unauthorized_error() {
     let mut command = command_with_config(&config_path);
     let assert = command
         .env("PEXELS_API_KEY", "bad-key")
-        .env("PEXELS_AGENT_API_BASE", server.base_url())
+        .env("PEXFETCH_API_BASE", server.base_url())
         .args(["search", "--query", "x"])
         .assert()
         .code(3);
@@ -202,7 +202,7 @@ fn search_maps_http_429_to_rate_limited_error() {
     let mut command = command_with_config(&config_path);
     let assert = command
         .env("PEXELS_API_KEY", "test-key")
-        .env("PEXELS_AGENT_API_BASE", server.base_url())
+        .env("PEXFETCH_API_BASE", server.base_url())
         .args(["search", "--query", "x"])
         .assert()
         .code(6);
@@ -229,7 +229,7 @@ fn download_first_maps_empty_result_to_not_found() {
     let mut command = command_with_config(&config_path);
     let assert = command
         .env("PEXELS_API_KEY", "test-key")
-        .env("PEXELS_AGENT_API_BASE", server.base_url())
+        .env("PEXFETCH_API_BASE", server.base_url())
         .args([
             "download-first",
             "--query",
@@ -296,7 +296,7 @@ fn download_missing_quality_in_photo_emits_available_list() {
     let mut command = command_with_config(&config_path);
     let assert = command
         .env("PEXELS_API_KEY", "test-key")
-        .env("PEXELS_AGENT_API_BASE", server.base_url())
+        .env("PEXFETCH_API_BASE", server.base_url())
         .args([
             "download",
             "--id",
@@ -375,7 +375,7 @@ fn search_reports_upstream_total_results() {
     let payload = parse_stdout_json(
         command_with_config(&config_path)
             .env("PEXELS_API_KEY", "test-key")
-            .env("PEXELS_AGENT_API_BASE", server.base_url())
+            .env("PEXFETCH_API_BASE", server.base_url())
             .args(["search", "--query", "x", "--per-page", "2"]),
     );
 
@@ -396,7 +396,7 @@ fn search_maps_http_403_to_forbidden() {
     let mut command = command_with_config(&config_path);
     let assert = command
         .env("PEXELS_API_KEY", "no-scope")
-        .env("PEXELS_AGENT_API_BASE", server.base_url())
+        .env("PEXFETCH_API_BASE", server.base_url())
         .args(["search", "--query", "x"])
         .assert()
         .code(3);
@@ -419,7 +419,7 @@ fn search_surfaces_malformed_json_response() {
     let mut command = command_with_config(&config_path);
     let assert = command
         .env("PEXELS_API_KEY", "test-key")
-        .env("PEXELS_AGENT_API_BASE", server.base_url())
+        .env("PEXFETCH_API_BASE", server.base_url())
         .args(["search", "--query", "x"])
         .assert()
         .code(5);
@@ -453,8 +453,8 @@ fn xdg_config_home_is_used_when_config_path_unset() {
     let xdg = tempdir().unwrap();
     let home = tempdir().unwrap();
 
-    let mut command = Command::cargo_bin("pexels-agent").expect("binary exists");
-    command.env_remove("PEXELS_AGENT_CONFIG_PATH");
+    let mut command = Command::cargo_bin("pexfetch").expect("binary exists");
+    command.env_remove("PEXFETCH_CONFIG_PATH");
     command.env("XDG_CONFIG_HOME", xdg.path());
     command.env("HOME", home.path());
     command
@@ -462,7 +462,7 @@ fn xdg_config_home_is_used_when_config_path_unset() {
         .assert()
         .success();
 
-    let expected = xdg.path().join("pexels-agent").join("config.json");
+    let expected = xdg.path().join("pexfetch").join("config.json");
     assert!(
         expected.exists(),
         "config must land at {}",
@@ -534,7 +534,7 @@ fn search_rejects_non_https_api_base() {
     let mut command = command_with_config(&config_path);
     let assert = command
         .env("PEXELS_API_KEY", "test-key")
-        .env("PEXELS_AGENT_API_BASE", "http://evil.example.com")
+        .env("PEXFETCH_API_BASE", "http://evil.example.com")
         .args(["search", "--query", "mountains"])
         .assert()
         .failure();
@@ -545,7 +545,7 @@ fn search_rejects_non_https_api_base() {
         "error must mention https, got: {stderr:?}"
     );
     assert!(
-        stderr.contains("PEXELS_AGENT_API_BASE"),
+        stderr.contains("PEXFETCH_API_BASE"),
         "error must name the env var, got: {stderr:?}"
     );
 }
@@ -693,7 +693,7 @@ fn status_checks_api_connectivity() {
     let payload = parse_stdout_json(
         command_with_config(&config_path)
             .env("PEXELS_API_KEY", "test-key")
-            .env("PEXELS_AGENT_API_BASE", server.base_url())
+            .env("PEXFETCH_API_BASE", server.base_url())
             .args(["status"]),
     );
 
@@ -755,7 +755,7 @@ fn search_prints_machine_readable_json() {
     let payload = parse_stdout_json(
         command_with_config(&config_path)
             .env("PEXELS_API_KEY", "test-key")
-            .env("PEXELS_AGENT_API_BASE", server.base_url())
+            .env("PEXFETCH_API_BASE", server.base_url())
             .args([
                 "search",
                 "--query",
@@ -810,7 +810,7 @@ fn download_by_id_fetches_photo_and_saves_selected_quality() {
     let payload = parse_stdout_json(
         command_with_config(&config_path)
             .env("PEXELS_API_KEY", "test-key")
-            .env("PEXELS_AGENT_API_BASE", server.base_url())
+            .env("PEXFETCH_API_BASE", server.base_url())
             .args([
                 "download",
                 "--id",
@@ -872,7 +872,7 @@ fn download_first_searches_then_downloads_first_match() {
     let payload = parse_stdout_json(
         command_with_config(&config_path)
             .env("PEXELS_API_KEY", "test-key")
-            .env("PEXELS_AGENT_API_BASE", server.base_url())
+            .env("PEXFETCH_API_BASE", server.base_url())
             .args([
                 "download-first",
                 "--query",

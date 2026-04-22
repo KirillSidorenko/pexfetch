@@ -19,7 +19,7 @@ use crate::error::AppError;
 use crate::models::{Photo, SearchResponse};
 
 const DEFAULT_API_BASE: &str = "https://api.pexels.com";
-const USER_AGENT_VALUE: &str = concat!("pexels-agent-cli/", env!("CARGO_PKG_VERSION"));
+const USER_AGENT_VALUE: &str = concat!("pexfetch/", env!("CARGO_PKG_VERSION"));
 const DEFAULT_HTTP_TIMEOUT: Duration = Duration::from_secs(60);
 const DEFAULT_CONNECT_TIMEOUT: Duration = Duration::from_secs(10);
 const DEFAULT_DOWNLOAD_MAX_BYTES: u64 = 200 * 1024 * 1024; // 200 MiB
@@ -41,7 +41,7 @@ pub struct SearchRequest<'a> {
 ///
 /// Construct with [`ClientConfig::default`] and override individual
 /// fields. `lib.rs::client_config_from_env` exposes the same knobs via
-/// `PEXELS_AGENT_HTTP_TIMEOUT_MS` and `PEXELS_AGENT_DOWNLOAD_MAX_BYTES`.
+/// `PEXFETCH_HTTP_TIMEOUT_MS` and `PEXFETCH_DOWNLOAD_MAX_BYTES`.
 #[derive(Debug, Clone)]
 pub struct ClientConfig {
     /// Total per-request timeout (connect + read + body).
@@ -131,7 +131,7 @@ impl PexelsClient {
         Ok(response.json()?)
     }
 
-    /// Minimal request used by `pexels-agent status` to probe that the
+    /// Minimal request used by `pexfetch status` to probe that the
     /// configured API key actually authenticates against the base URL.
     pub fn check_connection(&self) -> Result<(), AppError> {
         let endpoint = self.endpoint("/v1/search")?;
@@ -175,7 +175,7 @@ impl PexelsClient {
                 drop(file);
                 let _ = std::fs::remove_file(destination);
                 return Err(AppError::message(format!(
-                    "download exceeds limit: {total} bytes > max {max} bytes (set PEXELS_AGENT_DOWNLOAD_MAX_BYTES to raise)",
+                    "download exceeds limit: {total} bytes > max {max} bytes (set PEXFETCH_DOWNLOAD_MAX_BYTES to raise)",
                     max = self.download_max_bytes
                 )));
             }
@@ -235,17 +235,17 @@ fn rate_limited_from(response: &Response) -> AppError {
 fn validate_api_base(api_base: &str) -> Result<Url, AppError> {
     let url = Url::parse(api_base).map_err(|error| {
         AppError::message(format!(
-            "PEXELS_AGENT_API_BASE is not a valid URL ({error}): {api_base}"
+            "PEXFETCH_API_BASE is not a valid URL ({error}): {api_base}"
         ))
     })?;
     match url.scheme() {
         "https" => Ok(url),
         "http" if is_loopback(&url) => Ok(url),
         "http" => Err(AppError::message(format!(
-            "PEXELS_AGENT_API_BASE must use https:// (got {api_base}); http:// is only permitted for loopback hosts like 127.0.0.1, ::1, or localhost"
+            "PEXFETCH_API_BASE must use https:// (got {api_base}); http:// is only permitted for loopback hosts like 127.0.0.1, ::1, or localhost"
         ))),
         other => Err(AppError::message(format!(
-            "PEXELS_AGENT_API_BASE scheme must be https (got {other}://)"
+            "PEXFETCH_API_BASE scheme must be https (got {other}://)"
         ))),
     }
 }
