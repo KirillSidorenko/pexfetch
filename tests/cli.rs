@@ -432,11 +432,7 @@ fn search_surfaces_malformed_json_response() {
 fn env_api_key_wins_over_stored_config() {
     let dir = tempdir().unwrap();
     let config_path = dir.path().join("config.json");
-    fs::write(
-        &config_path,
-        json!({ "api_key": "stored-key" }).to_string(),
-    )
-    .unwrap();
+    fs::write(&config_path, json!({ "api_key": "stored-key" }).to_string()).unwrap();
 
     let payload = parse_stdout_json(
         command_with_config(&config_path)

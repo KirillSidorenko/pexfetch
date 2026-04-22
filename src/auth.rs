@@ -39,10 +39,7 @@ pub fn config_path() -> Result<PathBuf, AppError> {
         AppError::message("HOME is not set and no config path override was provided")
     })?;
 
-    Ok(home
-        .join(".config")
-        .join("pexfetch")
-        .join("config.json"))
+    Ok(home.join(".config").join("pexfetch").join("config.json"))
 }
 
 /// Read the stored API key, if any. A present-but-empty or
