@@ -774,6 +774,460 @@ fn search_prints_machine_readable_json() {
 }
 
 #[test]
+fn videos_search_prints_machine_readable_json() {
+    let dir = tempdir().unwrap();
+    let config_path = dir.path().join("config.json");
+    let server = MockServer::start();
+
+    let search_mock = server.mock(|when, then| {
+        when.method(GET)
+            .path("/v1/videos/search")
+            .header("authorization", "test-key")
+            .query_param("query", "ocean")
+            .query_param("per_page", "2")
+            .query_param("orientation", "landscape");
+        then.status(200).json_body(json!({
+            "page": 1,
+            "per_page": 2,
+            "total_results": 500,
+            "url": "https://www.pexels.com/search/videos/ocean/",
+            "videos": [
+                {
+                    "id": 5000,
+                    "width": 3840,
+                    "height": 2160,
+                    "url": "https://www.pexels.com/video/ocean-5000/",
+                    "image": "https://images.pexels.com/videos/5000/poster.jpg",
+                    "duration": 18,
+                    "user": { "id": 1, "name": "Ada", "url": "https://www.pexels.com/@ada" },
+                    "video_files": [
+                        { "id": 90001, "quality": "hd", "file_type": "video/mp4",
+                          "width": 1920, "height": 1080, "fps": 30.0,
+                          "link": "https://videos.pexels.com/5000-hd.mp4" },
+                        { "id": 90002, "quality": "sd", "file_type": "video/mp4",
+                          "width": 960, "height": 540, "fps": 30.0,
+                          "link": "https://videos.pexels.com/5000-sd.mp4" }
+                    ],
+                    "video_pictures": [
+                        { "id": 1, "picture": "https://images.pexels.com/videos/5000/1.jpg", "nr": 0 }
+                    ]
+                },
+                {
+                    "id": 5001,
+                    "width": 1920,
+                    "height": 1080,
+                    "url": "https://www.pexels.com/video/ocean-5001/",
+                    "image": "https://images.pexels.com/videos/5001/poster.jpg",
+                    "duration": 12,
+                    "user": { "id": 2, "name": "Linus", "url": "https://www.pexels.com/@linus" },
+                    "video_files": [
+                        { "id": 90101, "quality": "hd", "file_type": "video/mp4",
+                          "width": 1920, "height": 1080, "fps": 24.0,
+                          "link": "https://videos.pexels.com/5001-hd.mp4" }
+                    ],
+                    "video_pictures": []
+                }
+            ],
+            "next_page": "https://api.pexels.com/v1/videos/search?page=2"
+        }));
+    });
+
+    let payload = parse_stdout_json(
+        command_with_config(&config_path)
+            .env("PEXELS_API_KEY", "test-key")
+            .env("PEXFETCH_API_BASE", server.base_url())
+            .args([
+                "videos",
+                "search",
+                "--query",
+                "ocean",
+                "--per-page",
+                "2",
+                "--orientation",
+                "landscape",
+            ]),
+    );
+
+    search_mock.assert();
+    assert_eq!(payload["query"], "ocean");
+    assert_eq!(payload["total_results"], 500);
+    assert_eq!(payload["videos"][0]["id"], 5000);
+    assert_eq!(payload["videos"][0]["duration"], 18);
+    assert_eq!(payload["videos"][0]["video_files"][0]["quality"], "hd");
+    assert_eq!(payload["videos"][0]["video_files"][0]["width"], 1920);
+    assert_eq!(payload["videos"][1]["id"], 5001);
+}
+
+#[test]
+fn videos_download_by_id_saves_highest_quality_file() {
+    let dir = tempdir().unwrap();
+    let config_path = dir.path().join("config.json");
+    let output_dir = dir.path().join("downloads");
+    let server = MockServer::start();
+    let hd_4k_url = server.url("/files/5000-hd-4k.mp4");
+    let hd_1080_url = server.url("/files/5000-hd-1080.mp4");
+    let sd_540_url = server.url("/files/5000-sd-540.mp4");
+
+    let video_mock = server.mock(|when, then| {
+        when.method(GET)
+            .path("/v1/videos/videos/5000")
+            .header("authorization", "test-key");
+        then.status(200).json_body(json!({
+            "id": 5000,
+            "width": 3840,
+            "height": 2160,
+            "url": "https://www.pexels.com/video/5000/",
+            "image": "https://images.pexels.com/videos/5000/poster.jpg",
+            "duration": 18,
+            "user": { "id": 1, "name": "Ada", "url": "https://www.pexels.com/@ada" },
+            "video_files": [
+                { "id": 90001, "quality": "hd", "file_type": "video/mp4",
+                  "width": 3840, "height": 2160, "fps": 30.0, "link": hd_4k_url },
+                { "id": 90002, "quality": "hd", "file_type": "video/mp4",
+                  "width": 1920, "height": 1080, "fps": 24.0, "link": hd_1080_url },
+                { "id": 90003, "quality": "sd", "file_type": "video/mp4",
+                  "width": 960, "height": 540, "fps": 30.0, "link": sd_540_url }
+            ],
+            "video_pictures": []
+        }));
+    });
+
+    let file_mock = server.mock(|when, then| {
+        when.method(GET).path("/files/5000-hd-4k.mp4");
+        then.status(200).body("4k-video-bytes");
+    });
+
+    let payload = parse_stdout_json(
+        command_with_config(&config_path)
+            .env("PEXELS_API_KEY", "test-key")
+            .env("PEXFETCH_API_BASE", server.base_url())
+            .args([
+                "videos",
+                "download",
+                "--id",
+                "5000",
+                "--quality",
+                "hd",
+                "--output-dir",
+                output_dir.to_str().unwrap(),
+            ]),
+    );
+
+    video_mock.assert();
+    file_mock.assert();
+    assert_eq!(payload["video_id"], 5000);
+    assert_eq!(
+        payload["video_file_id"], 90001,
+        "must pick the 4K file (max width*fps) within the hd bucket"
+    );
+    assert_eq!(payload["quality"], "hd");
+    assert_eq!(payload["file_type"], "video/mp4");
+    let saved_to = payload["saved_to"].as_str().unwrap();
+    assert!(
+        saved_to.ends_with(".mp4"),
+        "saved file must have .mp4 extension, got: {saved_to}"
+    );
+    assert_eq!(fs::read(saved_to).unwrap(), b"4k-video-bytes");
+}
+
+#[test]
+fn videos_download_with_explicit_file_id_overrides_quality() {
+    let dir = tempdir().unwrap();
+    let config_path = dir.path().join("config.json");
+    let output_dir = dir.path().join("downloads");
+    let server = MockServer::start();
+    let hd_1080_url = server.url("/files/5000-hd-1080.mp4");
+
+    server.mock(|when, then| {
+        when.method(GET).path("/v1/videos/videos/5000");
+        then.status(200).json_body(json!({
+            "id": 5000,
+            "width": 3840,
+            "height": 2160,
+            "url": "https://www.pexels.com/video/5000/",
+            "image": "https://images.pexels.com/videos/5000/poster.jpg",
+            "duration": 18,
+            "user": { "id": 1, "name": "Ada", "url": "https://www.pexels.com/@ada" },
+            "video_files": [
+                { "id": 90001, "quality": "hd", "file_type": "video/mp4",
+                  "width": 3840, "height": 2160, "fps": 30.0,
+                  "link": server.url("/files/5000-hd-4k.mp4") },
+                { "id": 90002, "quality": "hd", "file_type": "video/mp4",
+                  "width": 1920, "height": 1080, "fps": 24.0,
+                  "link": hd_1080_url },
+                { "id": 90003, "quality": "sd", "file_type": "video/mp4",
+                  "width": 960, "height": 540, "fps": 30.0,
+                  "link": server.url("/files/5000-sd-540.mp4") }
+            ],
+            "video_pictures": []
+        }));
+    });
+
+    let file_mock = server.mock(|when, then| {
+        when.method(GET).path("/files/5000-hd-1080.mp4");
+        then.status(200).body("1080p-bytes");
+    });
+
+    let payload = parse_stdout_json(
+        command_with_config(&config_path)
+            .env("PEXELS_API_KEY", "test-key")
+            .env("PEXFETCH_API_BASE", server.base_url())
+            .args([
+                "videos",
+                "download",
+                "--id",
+                "5000",
+                "--video-file-id",
+                "90002",
+                "--output-dir",
+                output_dir.to_str().unwrap(),
+            ]),
+    );
+
+    file_mock.assert();
+    assert_eq!(
+        payload["video_file_id"], 90002,
+        "explicit --video-file-id must override quality auto-pick"
+    );
+    let saved_to = payload["saved_to"].as_str().unwrap();
+    assert_eq!(fs::read(saved_to).unwrap(), b"1080p-bytes");
+}
+
+#[test]
+fn videos_download_first_searches_then_downloads_first_match() {
+    let dir = tempdir().unwrap();
+    let config_path = dir.path().join("config.json");
+    let output_dir = dir.path().join("downloads");
+    let server = MockServer::start();
+    let first_hd_url = server.url("/files/6000-hd.mp4");
+
+    let search_mock = server.mock(|when, then| {
+        when.method(GET)
+            .path("/v1/videos/search")
+            .query_param("query", "sunset")
+            .query_param("per_page", "15");
+        then.status(200).json_body(json!({
+            "page": 1,
+            "per_page": 15,
+            "total_results": 2,
+            "videos": [
+                {
+                    "id": 6000,
+                    "width": 1920, "height": 1080, "duration": 10,
+                    "video_files": [
+                        { "id": 80001, "quality": "hd", "file_type": "video/mp4",
+                          "width": 1920, "height": 1080, "fps": 30.0,
+                          "link": first_hd_url }
+                    ],
+                    "video_pictures": []
+                },
+                {
+                    "id": 6001,
+                    "width": 1280, "height": 720, "duration": 8,
+                    "video_files": [
+                        { "id": 80002, "quality": "hd", "file_type": "video/mp4",
+                          "width": 1280, "height": 720, "fps": 30.0,
+                          "link": server.url("/files/6001-hd.mp4") }
+                    ],
+                    "video_pictures": []
+                }
+            ]
+        }));
+    });
+
+    let file_mock = server.mock(|when, then| {
+        when.method(GET).path("/files/6000-hd.mp4");
+        then.status(200).body("sunset-bytes");
+    });
+
+    let payload = parse_stdout_json(
+        command_with_config(&config_path)
+            .env("PEXELS_API_KEY", "test-key")
+            .env("PEXFETCH_API_BASE", server.base_url())
+            .args([
+                "videos",
+                "download-first",
+                "--query",
+                "sunset",
+                "--output-dir",
+                output_dir.to_str().unwrap(),
+            ]),
+    );
+
+    search_mock.assert();
+    file_mock.assert();
+    assert_eq!(payload["video_id"], 6000);
+    assert_eq!(payload["video_file_id"], 80001);
+    assert_eq!(payload["query"], "sunset");
+    let saved_to = payload["saved_to"].as_str().unwrap();
+    assert_eq!(fs::read(saved_to).unwrap(), b"sunset-bytes");
+}
+
+#[test]
+fn videos_download_emits_invalid_quality_when_bucket_is_empty() {
+    let dir = tempdir().unwrap();
+    let config_path = dir.path().join("config.json");
+    let output_dir = dir.path().join("downloads");
+    let server = MockServer::start();
+
+    server.mock(|when, then| {
+        when.method(GET).path("/v1/videos/videos/5000");
+        then.status(200).json_body(json!({
+            "id": 5000,
+            "video_files": [
+                { "id": 90001, "quality": "hd", "file_type": "video/mp4",
+                  "width": 1920, "height": 1080, "fps": 30.0,
+                  "link": "https://example.test/hd.mp4" }
+            ],
+            "video_pictures": []
+        }));
+    });
+
+    let mut command = command_with_config(&config_path);
+    let assert = command
+        .env("PEXELS_API_KEY", "test-key")
+        .env("PEXFETCH_API_BASE", server.base_url())
+        .args([
+            "videos",
+            "download",
+            "--id",
+            "5000",
+            "--quality",
+            "sd",
+            "--output-dir",
+            output_dir.to_str().unwrap(),
+        ])
+        .assert()
+        .code(4);
+    let payload = stderr_json(&assert);
+
+    assert_eq!(payload["error"]["kind"], "invalid_quality");
+    let available: Vec<String> = payload["error"]["available_qualities"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|v| v.as_str().unwrap().to_owned())
+        .collect();
+    assert_eq!(available, vec!["hd".to_owned()]);
+}
+
+#[test]
+fn videos_download_unknown_file_id_returns_not_found() {
+    let dir = tempdir().unwrap();
+    let config_path = dir.path().join("config.json");
+    let output_dir = dir.path().join("downloads");
+    let server = MockServer::start();
+
+    server.mock(|when, then| {
+        when.method(GET).path("/v1/videos/videos/5000");
+        then.status(200).json_body(json!({
+            "id": 5000,
+            "video_files": [
+                { "id": 90001, "quality": "hd", "file_type": "video/mp4",
+                  "width": 1920, "height": 1080, "fps": 30.0,
+                  "link": "https://example.test/hd.mp4" }
+            ],
+            "video_pictures": []
+        }));
+    });
+
+    let mut command = command_with_config(&config_path);
+    let assert = command
+        .env("PEXELS_API_KEY", "test-key")
+        .env("PEXFETCH_API_BASE", server.base_url())
+        .args([
+            "videos",
+            "download",
+            "--id",
+            "5000",
+            "--video-file-id",
+            "99999",
+            "--output-dir",
+            output_dir.to_str().unwrap(),
+        ])
+        .assert()
+        .code(4);
+    let payload = stderr_json(&assert);
+
+    assert_eq!(payload["error"]["kind"], "not_found");
+    assert!(
+        payload["error"]["message"]
+            .as_str()
+            .unwrap()
+            .contains("99999")
+    );
+}
+
+#[test]
+fn videos_get_video_maps_http_404_to_not_found() {
+    let dir = tempdir().unwrap();
+    let config_path = dir.path().join("config.json");
+    let output_dir = dir.path().join("downloads");
+    let server = MockServer::start();
+
+    server.mock(|when, then| {
+        when.method(GET).path("/v1/videos/videos/9999999");
+        then.status(404).body("");
+    });
+
+    let mut command = command_with_config(&config_path);
+    let assert = command
+        .env("PEXELS_API_KEY", "test-key")
+        .env("PEXFETCH_API_BASE", server.base_url())
+        .args([
+            "videos",
+            "download",
+            "--id",
+            "9999999",
+            "--output-dir",
+            output_dir.to_str().unwrap(),
+        ])
+        .assert()
+        .code(4);
+    let payload = stderr_json(&assert);
+
+    assert_eq!(payload["error"]["kind"], "not_found");
+}
+
+#[test]
+fn videos_download_first_empty_result_maps_to_not_found() {
+    let dir = tempdir().unwrap();
+    let config_path = dir.path().join("config.json");
+    let output_dir = dir.path().join("downloads");
+    let server = MockServer::start();
+
+    server.mock(|when, then| {
+        when.method(GET).path("/v1/videos/search");
+        then.status(200)
+            .json_body(json!({ "page": 1, "per_page": 15, "videos": [] }));
+    });
+
+    let mut command = command_with_config(&config_path);
+    let assert = command
+        .env("PEXELS_API_KEY", "test-key")
+        .env("PEXFETCH_API_BASE", server.base_url())
+        .args([
+            "videos",
+            "download-first",
+            "--query",
+            "nothingburger",
+            "--output-dir",
+            output_dir.to_str().unwrap(),
+        ])
+        .assert()
+        .code(4);
+    let payload = stderr_json(&assert);
+
+    assert_eq!(payload["error"]["kind"], "not_found");
+    assert!(
+        payload["error"]["message"]
+            .as_str()
+            .unwrap()
+            .contains("nothingburger")
+    );
+}
+
+#[test]
 fn download_by_id_fetches_photo_and_saves_selected_quality() {
     let dir = tempdir().unwrap();
     let config_path = dir.path().join("config.json");
