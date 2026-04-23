@@ -1064,6 +1064,170 @@ fn videos_download_first_searches_then_downloads_first_match() {
 }
 
 #[test]
+fn videos_download_emits_invalid_quality_when_bucket_is_empty() {
+    let dir = tempdir().unwrap();
+    let config_path = dir.path().join("config.json");
+    let output_dir = dir.path().join("downloads");
+    let server = MockServer::start();
+
+    server.mock(|when, then| {
+        when.method(GET).path("/v1/videos/videos/5000");
+        then.status(200).json_body(json!({
+            "id": 5000,
+            "video_files": [
+                { "id": 90001, "quality": "hd", "file_type": "video/mp4",
+                  "width": 1920, "height": 1080, "fps": 30.0,
+                  "link": "https://example.test/hd.mp4" }
+            ],
+            "video_pictures": []
+        }));
+    });
+
+    let mut command = command_with_config(&config_path);
+    let assert = command
+        .env("PEXELS_API_KEY", "test-key")
+        .env("PEXFETCH_API_BASE", server.base_url())
+        .args([
+            "videos",
+            "download",
+            "--id",
+            "5000",
+            "--quality",
+            "sd",
+            "--output-dir",
+            output_dir.to_str().unwrap(),
+        ])
+        .assert()
+        .code(4);
+    let payload = stderr_json(&assert);
+
+    assert_eq!(payload["error"]["kind"], "invalid_quality");
+    let available: Vec<String> = payload["error"]["available_qualities"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|v| v.as_str().unwrap().to_owned())
+        .collect();
+    assert_eq!(available, vec!["hd".to_owned()]);
+}
+
+#[test]
+fn videos_download_unknown_file_id_returns_not_found() {
+    let dir = tempdir().unwrap();
+    let config_path = dir.path().join("config.json");
+    let output_dir = dir.path().join("downloads");
+    let server = MockServer::start();
+
+    server.mock(|when, then| {
+        when.method(GET).path("/v1/videos/videos/5000");
+        then.status(200).json_body(json!({
+            "id": 5000,
+            "video_files": [
+                { "id": 90001, "quality": "hd", "file_type": "video/mp4",
+                  "width": 1920, "height": 1080, "fps": 30.0,
+                  "link": "https://example.test/hd.mp4" }
+            ],
+            "video_pictures": []
+        }));
+    });
+
+    let mut command = command_with_config(&config_path);
+    let assert = command
+        .env("PEXELS_API_KEY", "test-key")
+        .env("PEXFETCH_API_BASE", server.base_url())
+        .args([
+            "videos",
+            "download",
+            "--id",
+            "5000",
+            "--video-file-id",
+            "99999",
+            "--output-dir",
+            output_dir.to_str().unwrap(),
+        ])
+        .assert()
+        .code(4);
+    let payload = stderr_json(&assert);
+
+    assert_eq!(payload["error"]["kind"], "not_found");
+    assert!(
+        payload["error"]["message"]
+            .as_str()
+            .unwrap()
+            .contains("99999")
+    );
+}
+
+#[test]
+fn videos_get_video_maps_http_404_to_not_found() {
+    let dir = tempdir().unwrap();
+    let config_path = dir.path().join("config.json");
+    let output_dir = dir.path().join("downloads");
+    let server = MockServer::start();
+
+    server.mock(|when, then| {
+        when.method(GET).path("/v1/videos/videos/9999999");
+        then.status(404).body("");
+    });
+
+    let mut command = command_with_config(&config_path);
+    let assert = command
+        .env("PEXELS_API_KEY", "test-key")
+        .env("PEXFETCH_API_BASE", server.base_url())
+        .args([
+            "videos",
+            "download",
+            "--id",
+            "9999999",
+            "--output-dir",
+            output_dir.to_str().unwrap(),
+        ])
+        .assert()
+        .code(4);
+    let payload = stderr_json(&assert);
+
+    assert_eq!(payload["error"]["kind"], "not_found");
+}
+
+#[test]
+fn videos_download_first_empty_result_maps_to_not_found() {
+    let dir = tempdir().unwrap();
+    let config_path = dir.path().join("config.json");
+    let output_dir = dir.path().join("downloads");
+    let server = MockServer::start();
+
+    server.mock(|when, then| {
+        when.method(GET).path("/v1/videos/search");
+        then.status(200)
+            .json_body(json!({ "page": 1, "per_page": 15, "videos": [] }));
+    });
+
+    let mut command = command_with_config(&config_path);
+    let assert = command
+        .env("PEXELS_API_KEY", "test-key")
+        .env("PEXFETCH_API_BASE", server.base_url())
+        .args([
+            "videos",
+            "download-first",
+            "--query",
+            "nothingburger",
+            "--output-dir",
+            output_dir.to_str().unwrap(),
+        ])
+        .assert()
+        .code(4);
+    let payload = stderr_json(&assert);
+
+    assert_eq!(payload["error"]["kind"], "not_found");
+    assert!(
+        payload["error"]["message"]
+            .as_str()
+            .unwrap()
+            .contains("nothingburger")
+    );
+}
+
+#[test]
 fn download_by_id_fetches_photo_and_saves_selected_quality() {
     let dir = tempdir().unwrap();
     let config_path = dir.path().join("config.json");
