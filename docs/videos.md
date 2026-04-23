@@ -1,6 +1,6 @@
 # Video support — implementation plan
 
-Status: in progress (2026-04-23)
+Status: done (2026-04-23) — all five TDD cycles merged.
 
 ## Why
 
@@ -132,7 +132,12 @@ Each cycle lands as its own commit so `git log` stays readable.
 
 ## Checklist before commit sequence is done
 
-- [ ] All 5 TDD cycles green
-- [ ] `cargo fmt --check`, `cargo clippy -D warnings`, `cargo test` all clean
-- [ ] README gains a "Videos" section mirroring the Photos one
-- [ ] `docs/videos.md` (this file) flipped to Status: done
+- [x] All 5 TDD cycles green (40 integration tests total, +7 new)
+- [x] `cargo fmt --check`, `cargo clippy -D warnings`, `cargo test` all clean
+- [x] README gains a "Videos" section under Commands
+- [x] `docs/videos.md` (this file) flipped to Status: done
+
+Follow-ups punted to a later PR:
+- `pexfetch videos popular` (the only endpoint not yet wrapped)
+- Updating `skills/claude/pexels-images/` and `skills/codex/pexels-images/`
+  to teach the new `videos …` subtree
