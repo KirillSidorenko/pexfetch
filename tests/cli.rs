@@ -931,6 +931,69 @@ fn videos_download_by_id_saves_highest_quality_file() {
 }
 
 #[test]
+fn videos_download_with_explicit_file_id_overrides_quality() {
+    let dir = tempdir().unwrap();
+    let config_path = dir.path().join("config.json");
+    let output_dir = dir.path().join("downloads");
+    let server = MockServer::start();
+    let hd_1080_url = server.url("/files/5000-hd-1080.mp4");
+
+    server.mock(|when, then| {
+        when.method(GET).path("/v1/videos/videos/5000");
+        then.status(200).json_body(json!({
+            "id": 5000,
+            "width": 3840,
+            "height": 2160,
+            "url": "https://www.pexels.com/video/5000/",
+            "image": "https://images.pexels.com/videos/5000/poster.jpg",
+            "duration": 18,
+            "user": { "id": 1, "name": "Ada", "url": "https://www.pexels.com/@ada" },
+            "video_files": [
+                { "id": 90001, "quality": "hd", "file_type": "video/mp4",
+                  "width": 3840, "height": 2160, "fps": 30.0,
+                  "link": server.url("/files/5000-hd-4k.mp4") },
+                { "id": 90002, "quality": "hd", "file_type": "video/mp4",
+                  "width": 1920, "height": 1080, "fps": 24.0,
+                  "link": hd_1080_url },
+                { "id": 90003, "quality": "sd", "file_type": "video/mp4",
+                  "width": 960, "height": 540, "fps": 30.0,
+                  "link": server.url("/files/5000-sd-540.mp4") }
+            ],
+            "video_pictures": []
+        }));
+    });
+
+    let file_mock = server.mock(|when, then| {
+        when.method(GET).path("/files/5000-hd-1080.mp4");
+        then.status(200).body("1080p-bytes");
+    });
+
+    let payload = parse_stdout_json(
+        command_with_config(&config_path)
+            .env("PEXELS_API_KEY", "test-key")
+            .env("PEXFETCH_API_BASE", server.base_url())
+            .args([
+                "videos",
+                "download",
+                "--id",
+                "5000",
+                "--video-file-id",
+                "90002",
+                "--output-dir",
+                output_dir.to_str().unwrap(),
+            ]),
+    );
+
+    file_mock.assert();
+    assert_eq!(
+        payload["video_file_id"], 90002,
+        "explicit --video-file-id must override quality auto-pick"
+    );
+    let saved_to = payload["saved_to"].as_str().unwrap();
+    assert_eq!(fs::read(saved_to).unwrap(), b"1080p-bytes");
+}
+
+#[test]
 fn download_by_id_fetches_photo_and_saves_selected_quality() {
     let dir = tempdir().unwrap();
     let config_path = dir.path().join("config.json");

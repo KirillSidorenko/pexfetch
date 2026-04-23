@@ -97,6 +97,9 @@ struct VideoDownloadArgs {
     id: u64,
     #[arg(long, value_enum, default_value_t = VideoQuality::Hd)]
     quality: VideoQuality,
+    /// Explicit pick by `video_files[].id`. Overrides `--quality` when set.
+    #[arg(long = "video-file-id")]
+    video_file_id: Option<u64>,
     #[arg(long = "output-dir")]
     output_dir: PathBuf,
 }
@@ -327,7 +330,10 @@ fn run_videos(command: &VideoCommand, stdout: &mut impl Write) -> Result<(), App
         VideoCommand::Download(args) => {
             let client = build_client()?;
             let video = client.get_video(args.id)?;
-            let file = pick_video_file_by_quality(&video, args.quality)?;
+            let file = match args.video_file_id {
+                Some(file_id) => pick_video_file_by_id(&video, file_id)?,
+                None => pick_video_file_by_quality(&video, args.quality)?,
+            };
             let destination = build_video_destination(
                 &args.output_dir,
                 video.id,
@@ -349,6 +355,19 @@ fn run_videos(command: &VideoCommand, stdout: &mut impl Write) -> Result<(), App
             )
         }
     }
+}
+
+fn pick_video_file_by_id(video: &Video, file_id: u64) -> Result<&VideoFile, AppError> {
+    video
+        .video_files
+        .iter()
+        .find(|f| f.id == file_id)
+        .ok_or_else(|| {
+            AppError::NotFound(format!(
+                "video {} has no video_files entry with id {file_id}",
+                video.id
+            ))
+        })
 }
 
 fn pick_video_file_by_quality(
