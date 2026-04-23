@@ -69,6 +69,18 @@ enum VideoCommand {
     Search(VideoSearchArgs),
     #[command(about = "Download a specific Pexels video by id")]
     Download(VideoDownloadArgs),
+    #[command(about = "Search and download the first matching Pexels video")]
+    DownloadFirst(VideoDownloadFirstArgs),
+}
+
+#[derive(Debug, Args)]
+struct VideoDownloadFirstArgs {
+    #[command(flatten)]
+    search: VideoSearchArgs,
+    #[arg(long, value_enum, default_value_t = VideoQuality::Hd)]
+    quality: VideoQuality,
+    #[arg(long = "output-dir")]
+    output_dir: PathBuf,
 }
 
 /// Coarse quality bucket exposed by the Pexels videos API. Within a
@@ -349,6 +361,33 @@ fn run_videos(command: &VideoCommand, stdout: &mut impl Write) -> Result<(), App
                     quality: file.quality.clone(),
                     file_type: file.file_type.clone(),
                     query: None,
+                    saved_to: destination.to_string_lossy().into_owned(),
+                    source_url: file.link.clone(),
+                },
+            )
+        }
+        VideoCommand::DownloadFirst(args) => {
+            let client = build_client()?;
+            let response = client.search_videos(&video_search_request(&args.search))?;
+            let video = response.videos.into_iter().next().ok_or_else(|| {
+                AppError::NotFound(format!("No videos found for query '{}'", args.search.query))
+            })?;
+            let file = pick_video_file_by_quality(&video, args.quality)?;
+            let destination = build_video_destination(
+                &args.output_dir,
+                video.id,
+                file.id,
+                file.file_type.as_deref(),
+            );
+            client.download_file(&file.link, &destination)?;
+            emit_json(
+                stdout,
+                &VideoDownloadPayload {
+                    video_id: video.id,
+                    video_file_id: file.id,
+                    quality: file.quality.clone(),
+                    file_type: file.file_type.clone(),
+                    query: Some(args.search.query.clone()),
                     saved_to: destination.to_string_lossy().into_owned(),
                     source_url: file.link.clone(),
                 },

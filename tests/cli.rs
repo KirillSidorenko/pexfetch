@@ -994,6 +994,76 @@ fn videos_download_with_explicit_file_id_overrides_quality() {
 }
 
 #[test]
+fn videos_download_first_searches_then_downloads_first_match() {
+    let dir = tempdir().unwrap();
+    let config_path = dir.path().join("config.json");
+    let output_dir = dir.path().join("downloads");
+    let server = MockServer::start();
+    let first_hd_url = server.url("/files/6000-hd.mp4");
+
+    let search_mock = server.mock(|when, then| {
+        when.method(GET)
+            .path("/v1/videos/search")
+            .query_param("query", "sunset")
+            .query_param("per_page", "15");
+        then.status(200).json_body(json!({
+            "page": 1,
+            "per_page": 15,
+            "total_results": 2,
+            "videos": [
+                {
+                    "id": 6000,
+                    "width": 1920, "height": 1080, "duration": 10,
+                    "video_files": [
+                        { "id": 80001, "quality": "hd", "file_type": "video/mp4",
+                          "width": 1920, "height": 1080, "fps": 30.0,
+                          "link": first_hd_url }
+                    ],
+                    "video_pictures": []
+                },
+                {
+                    "id": 6001,
+                    "width": 1280, "height": 720, "duration": 8,
+                    "video_files": [
+                        { "id": 80002, "quality": "hd", "file_type": "video/mp4",
+                          "width": 1280, "height": 720, "fps": 30.0,
+                          "link": server.url("/files/6001-hd.mp4") }
+                    ],
+                    "video_pictures": []
+                }
+            ]
+        }));
+    });
+
+    let file_mock = server.mock(|when, then| {
+        when.method(GET).path("/files/6000-hd.mp4");
+        then.status(200).body("sunset-bytes");
+    });
+
+    let payload = parse_stdout_json(
+        command_with_config(&config_path)
+            .env("PEXELS_API_KEY", "test-key")
+            .env("PEXFETCH_API_BASE", server.base_url())
+            .args([
+                "videos",
+                "download-first",
+                "--query",
+                "sunset",
+                "--output-dir",
+                output_dir.to_str().unwrap(),
+            ]),
+    );
+
+    search_mock.assert();
+    file_mock.assert();
+    assert_eq!(payload["video_id"], 6000);
+    assert_eq!(payload["video_file_id"], 80001);
+    assert_eq!(payload["query"], "sunset");
+    let saved_to = payload["saved_to"].as_str().unwrap();
+    assert_eq!(fs::read(saved_to).unwrap(), b"sunset-bytes");
+}
+
+#[test]
 fn download_by_id_fetches_photo_and_saves_selected_quality() {
     let dir = tempdir().unwrap();
     let config_path = dir.path().join("config.json");
