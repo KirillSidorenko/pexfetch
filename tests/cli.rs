@@ -859,6 +859,78 @@ fn videos_search_prints_machine_readable_json() {
 }
 
 #[test]
+fn videos_download_by_id_saves_highest_quality_file() {
+    let dir = tempdir().unwrap();
+    let config_path = dir.path().join("config.json");
+    let output_dir = dir.path().join("downloads");
+    let server = MockServer::start();
+    let hd_4k_url = server.url("/files/5000-hd-4k.mp4");
+    let hd_1080_url = server.url("/files/5000-hd-1080.mp4");
+    let sd_540_url = server.url("/files/5000-sd-540.mp4");
+
+    let video_mock = server.mock(|when, then| {
+        when.method(GET)
+            .path("/v1/videos/videos/5000")
+            .header("authorization", "test-key");
+        then.status(200).json_body(json!({
+            "id": 5000,
+            "width": 3840,
+            "height": 2160,
+            "url": "https://www.pexels.com/video/5000/",
+            "image": "https://images.pexels.com/videos/5000/poster.jpg",
+            "duration": 18,
+            "user": { "id": 1, "name": "Ada", "url": "https://www.pexels.com/@ada" },
+            "video_files": [
+                { "id": 90001, "quality": "hd", "file_type": "video/mp4",
+                  "width": 3840, "height": 2160, "fps": 30.0, "link": hd_4k_url },
+                { "id": 90002, "quality": "hd", "file_type": "video/mp4",
+                  "width": 1920, "height": 1080, "fps": 24.0, "link": hd_1080_url },
+                { "id": 90003, "quality": "sd", "file_type": "video/mp4",
+                  "width": 960, "height": 540, "fps": 30.0, "link": sd_540_url }
+            ],
+            "video_pictures": []
+        }));
+    });
+
+    let file_mock = server.mock(|when, then| {
+        when.method(GET).path("/files/5000-hd-4k.mp4");
+        then.status(200).body("4k-video-bytes");
+    });
+
+    let payload = parse_stdout_json(
+        command_with_config(&config_path)
+            .env("PEXELS_API_KEY", "test-key")
+            .env("PEXFETCH_API_BASE", server.base_url())
+            .args([
+                "videos",
+                "download",
+                "--id",
+                "5000",
+                "--quality",
+                "hd",
+                "--output-dir",
+                output_dir.to_str().unwrap(),
+            ]),
+    );
+
+    video_mock.assert();
+    file_mock.assert();
+    assert_eq!(payload["video_id"], 5000);
+    assert_eq!(
+        payload["video_file_id"], 90001,
+        "must pick the 4K file (max width*fps) within the hd bucket"
+    );
+    assert_eq!(payload["quality"], "hd");
+    assert_eq!(payload["file_type"], "video/mp4");
+    let saved_to = payload["saved_to"].as_str().unwrap();
+    assert!(
+        saved_to.ends_with(".mp4"),
+        "saved file must have .mp4 extension, got: {saved_to}"
+    );
+    assert_eq!(fs::read(saved_to).unwrap(), b"4k-video-bytes");
+}
+
+#[test]
 fn download_by_id_fetches_photo_and_saves_selected_quality() {
     let dir = tempdir().unwrap();
     let config_path = dir.path().join("config.json");

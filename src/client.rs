@@ -16,7 +16,7 @@ use serde::Serialize;
 use url::Url;
 
 use crate::error::AppError;
-use crate::models::{Photo, SearchResponse, VideosSearchResponse};
+use crate::models::{Photo, SearchResponse, Video, VideosSearchResponse};
 
 const DEFAULT_API_BASE: &str = "https://api.pexels.com";
 const USER_AGENT_VALUE: &str = concat!("pexfetch/", env!("CARGO_PKG_VERSION"));
@@ -156,6 +156,22 @@ impl PexelsClient {
                 .header(ACCEPT, "application/json")
                 .header(USER_AGENT, USER_AGENT_VALUE)
                 .query(request)
+                .send()?,
+        )?;
+
+        Ok(response.json()?)
+    }
+
+    /// `GET /v1/videos/videos/{id}` — returns metadata for a single
+    /// video including every `video_files[]` rendition.
+    pub fn get_video(&self, video_id: u64) -> Result<Video, AppError> {
+        let endpoint = self.endpoint(&format!("/v1/videos/videos/{video_id}"))?;
+        let response = check_status(
+            self.http
+                .get(endpoint)
+                .header(AUTHORIZATION, &self.api_key)
+                .header(ACCEPT, "application/json")
+                .header(USER_AGENT, USER_AGENT_VALUE)
                 .send()?,
         )?;
 
