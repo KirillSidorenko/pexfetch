@@ -22,9 +22,12 @@ mod error;
 mod models;
 
 use auth::{config_path, load_stored_api_key, remove_stored_api_key, save_api_key};
-use client::{ClientConfig, PexelsClient, SearchRequest};
+use client::{ClientConfig, PexelsClient, SearchRequest, VideoSearchRequest};
 pub use error::AppError;
-use models::{AuthStatusPayload, DownloadPayload, Photo, SearchPayload, StatusPayload};
+use models::{
+    AuthStatusPayload, DownloadPayload, Photo, SearchPayload, StatusPayload, VideoSearchPayload,
+    VideosSearchResponse,
+};
 
 const PEXELS_API_KEY_URL: &str = "https://www.pexels.com/api/key/";
 
@@ -53,6 +56,33 @@ enum Command {
     Download(DownloadArgs),
     #[command(about = "Search and download the first matching Pexels photo")]
     DownloadFirst(DownloadFirstArgs),
+    #[command(about = "Search and download Pexels videos")]
+    Videos {
+        #[command(subcommand)]
+        command: VideoCommand,
+    },
+}
+
+#[derive(Debug, Subcommand)]
+enum VideoCommand {
+    #[command(about = "Search Pexels videos and return JSON results")]
+    Search(VideoSearchArgs),
+}
+
+#[derive(Debug, Clone, Args)]
+struct VideoSearchArgs {
+    #[arg(long)]
+    query: String,
+    #[arg(long, default_value_t = 1)]
+    page: u64,
+    #[arg(long = "per-page", default_value_t = 15)]
+    per_page: u64,
+    #[arg(long)]
+    orientation: Option<String>,
+    #[arg(long)]
+    size: Option<String>,
+    #[arg(long)]
+    locale: Option<String>,
 }
 
 #[derive(Debug, Subcommand)]
@@ -230,6 +260,7 @@ fn run(
                 },
             )
         }
+        Command::Videos { command } => run_videos(command, stdout),
         Command::DownloadFirst(args) => {
             let client = build_client()?;
             let response = client.search_photos(&search_request(&args.search))?;
@@ -251,6 +282,44 @@ fn run(
                 },
             )
         }
+    }
+}
+
+fn run_videos(command: &VideoCommand, stdout: &mut impl Write) -> Result<(), AppError> {
+    match command {
+        VideoCommand::Search(args) => {
+            let client = build_client()?;
+            let response = client.search_videos(&video_search_request(args))?;
+            emit_json(stdout, &video_search_payload(args, response))
+        }
+    }
+}
+
+fn video_search_request(args: &VideoSearchArgs) -> VideoSearchRequest<'_> {
+    VideoSearchRequest {
+        query: &args.query,
+        page: args.page,
+        per_page: args.per_page,
+        orientation: args.orientation.as_deref(),
+        size: args.size.as_deref(),
+        locale: args.locale.as_deref(),
+    }
+}
+
+fn video_search_payload(
+    args: &VideoSearchArgs,
+    response: VideosSearchResponse,
+) -> VideoSearchPayload {
+    VideoSearchPayload {
+        next_page: response.next_page,
+        prev_page: response.prev_page,
+        page: response.page.unwrap_or(args.page),
+        per_page: response.per_page.unwrap_or(args.per_page),
+        total_results: response
+            .total_results
+            .unwrap_or(response.videos.len() as u64),
+        query: args.query.clone(),
+        videos: response.videos,
     }
 }
 

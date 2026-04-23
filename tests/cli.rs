@@ -774,6 +774,91 @@ fn search_prints_machine_readable_json() {
 }
 
 #[test]
+fn videos_search_prints_machine_readable_json() {
+    let dir = tempdir().unwrap();
+    let config_path = dir.path().join("config.json");
+    let server = MockServer::start();
+
+    let search_mock = server.mock(|when, then| {
+        when.method(GET)
+            .path("/v1/videos/search")
+            .header("authorization", "test-key")
+            .query_param("query", "ocean")
+            .query_param("per_page", "2")
+            .query_param("orientation", "landscape");
+        then.status(200).json_body(json!({
+            "page": 1,
+            "per_page": 2,
+            "total_results": 500,
+            "url": "https://www.pexels.com/search/videos/ocean/",
+            "videos": [
+                {
+                    "id": 5000,
+                    "width": 3840,
+                    "height": 2160,
+                    "url": "https://www.pexels.com/video/ocean-5000/",
+                    "image": "https://images.pexels.com/videos/5000/poster.jpg",
+                    "duration": 18,
+                    "user": { "id": 1, "name": "Ada", "url": "https://www.pexels.com/@ada" },
+                    "video_files": [
+                        { "id": 90001, "quality": "hd", "file_type": "video/mp4",
+                          "width": 1920, "height": 1080, "fps": 30.0,
+                          "link": "https://videos.pexels.com/5000-hd.mp4" },
+                        { "id": 90002, "quality": "sd", "file_type": "video/mp4",
+                          "width": 960, "height": 540, "fps": 30.0,
+                          "link": "https://videos.pexels.com/5000-sd.mp4" }
+                    ],
+                    "video_pictures": [
+                        { "id": 1, "picture": "https://images.pexels.com/videos/5000/1.jpg", "nr": 0 }
+                    ]
+                },
+                {
+                    "id": 5001,
+                    "width": 1920,
+                    "height": 1080,
+                    "url": "https://www.pexels.com/video/ocean-5001/",
+                    "image": "https://images.pexels.com/videos/5001/poster.jpg",
+                    "duration": 12,
+                    "user": { "id": 2, "name": "Linus", "url": "https://www.pexels.com/@linus" },
+                    "video_files": [
+                        { "id": 90101, "quality": "hd", "file_type": "video/mp4",
+                          "width": 1920, "height": 1080, "fps": 24.0,
+                          "link": "https://videos.pexels.com/5001-hd.mp4" }
+                    ],
+                    "video_pictures": []
+                }
+            ],
+            "next_page": "https://api.pexels.com/v1/videos/search?page=2"
+        }));
+    });
+
+    let payload = parse_stdout_json(
+        command_with_config(&config_path)
+            .env("PEXELS_API_KEY", "test-key")
+            .env("PEXFETCH_API_BASE", server.base_url())
+            .args([
+                "videos",
+                "search",
+                "--query",
+                "ocean",
+                "--per-page",
+                "2",
+                "--orientation",
+                "landscape",
+            ]),
+    );
+
+    search_mock.assert();
+    assert_eq!(payload["query"], "ocean");
+    assert_eq!(payload["total_results"], 500);
+    assert_eq!(payload["videos"][0]["id"], 5000);
+    assert_eq!(payload["videos"][0]["duration"], 18);
+    assert_eq!(payload["videos"][0]["video_files"][0]["quality"], "hd");
+    assert_eq!(payload["videos"][0]["video_files"][0]["width"], 1920);
+    assert_eq!(payload["videos"][1]["id"], 5001);
+}
+
+#[test]
 fn download_by_id_fetches_photo_and_saves_selected_quality() {
     let dir = tempdir().unwrap();
     let config_path = dir.path().join("config.json");

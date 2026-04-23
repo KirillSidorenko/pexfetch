@@ -16,7 +16,7 @@ use serde::Serialize;
 use url::Url;
 
 use crate::error::AppError;
-use crate::models::{Photo, SearchResponse};
+use crate::models::{Photo, SearchResponse, VideosSearchResponse};
 
 const DEFAULT_API_BASE: &str = "https://api.pexels.com";
 const USER_AGENT_VALUE: &str = concat!("pexfetch/", env!("CARGO_PKG_VERSION"));
@@ -34,6 +34,18 @@ pub struct SearchRequest<'a> {
     pub orientation: Option<&'a str>,
     pub size: Option<&'a str>,
     pub color: Option<&'a str>,
+    pub locale: Option<&'a str>,
+}
+
+/// Query parameters for `GET /v1/videos/search`. Mirrors `SearchRequest`
+/// but omits the photo-only `color` field.
+#[derive(Debug, Clone, Serialize)]
+pub struct VideoSearchRequest<'a> {
+    pub query: &'a str,
+    pub page: u64,
+    pub per_page: u64,
+    pub orientation: Option<&'a str>,
+    pub size: Option<&'a str>,
     pub locale: Option<&'a str>,
 }
 
@@ -125,6 +137,25 @@ impl PexelsClient {
                 .header(AUTHORIZATION, &self.api_key)
                 .header(ACCEPT, "application/json")
                 .header(USER_AGENT, USER_AGENT_VALUE)
+                .send()?,
+        )?;
+
+        Ok(response.json()?)
+    }
+
+    /// `GET /v1/videos/search` with the given parameters.
+    pub fn search_videos(
+        &self,
+        request: &VideoSearchRequest<'_>,
+    ) -> Result<VideosSearchResponse, AppError> {
+        let endpoint = self.endpoint("/v1/videos/search")?;
+        let response = check_status(
+            self.http
+                .get(endpoint)
+                .header(AUTHORIZATION, &self.api_key)
+                .header(ACCEPT, "application/json")
+                .header(USER_AGENT, USER_AGENT_VALUE)
+                .query(request)
                 .send()?,
         )?;
 
