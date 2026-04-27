@@ -1,9 +1,9 @@
 # pexfetch
 
-Agent-friendly Rust CLI for Pexels image search and downloads. Every
-command emits machine-readable JSON on stdout; errors come back as JSON
-on stderr with a stable `kind` and a distinct exit code, so an LLM or
-automation script can branch without regex.
+Agent-friendly Rust CLI for Pexels image **and video** search and
+downloads. Every command emits machine-readable JSON on stdout; errors
+come back as JSON on stderr with a stable `kind` and a distinct exit
+code, so an LLM or automation script can branch without regex.
 
 ## Install
 
@@ -45,6 +45,28 @@ pexfetch search --query mountains --per-page 3
 pexfetch download --id 1001 --quality large2x --output-dir ./downloads
 pexfetch download-first --query mountains --output-dir ./downloads
 ```
+
+### Videos
+
+Videos live under their own subcommand tree because the Pexels API
+exposes a separate `/v1/videos/` endpoint with different response shape
+(array of `video_files` instead of photo's named `src.original`,
+`src.large2x`, …).
+
+```bash
+pexfetch videos search --query "drone sunset" --per-page 5
+pexfetch videos download --id 5000 --quality hd --output-dir ./clips
+pexfetch videos download --id 5000 --video-file-id 90002 --output-dir ./clips
+pexfetch videos download-first --query "drone sunset" --output-dir ./clips
+```
+
+`--quality` is one of `hd | sd | hls` (default `hd`). Within a bucket
+the entry with the highest `width * fps` wins. `--video-file-id N`
+bypasses `--quality` and picks that exact entry from
+`video_files[]` — useful when a video has several variants at the
+same quality. File extension on disk is derived from the upstream
+`file_type` (`video/mp4` → `.mp4`, `video/webm` → `.webm`,
+`video/quicktime` → `.mov`, HLS mime types → `.m3u8`).
 
 ## Auth & secrets
 
